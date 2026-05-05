@@ -131,6 +131,40 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Which corner to place the signature in. Default: br.",
     )
+    parser.add_argument(
+        "--heightmap",
+        dest="external_heightmap_path",
+        default=None,
+        help="Path to a precomputed heightmap PNG (sculptok / meshy / hand-authored). "
+             "When set, the depth network is bypassed and this image is used as the "
+             "depth source. Pair with the original photo for subject mask + colour "
+             "passes + LightBurn export.",
+    )
+    parser.add_argument(
+        "--heightmap-polarity",
+        dest="external_heightmap_polarity",
+        choices=["bright_raised", "dark_raised", "auto"],
+        default=None,
+        help="Polarity of --heightmap input. Default: bright_raised (sculptok / meshy / "
+             "most published bas-relief renders). Use 'dark_raised' if your tool emits "
+             "the inverted polarity, or 'auto' to sniff the corners.",
+    )
+    parser.add_argument(
+        "--no-heightmap-stretch",
+        dest="external_heightmap_auto_stretch",
+        action="store_false",
+        default=None,
+        help="Skip the auto-stretch of the in-subject range. Use when your --heightmap "
+             "input is already calibrated to the engraving budget.",
+    )
+    parser.add_argument(
+        "--no-heightmap-mask",
+        dest="external_heightmap_use_subject_mask",
+        action="store_false",
+        default=None,
+        help="Skip the BiRefNet subject mask + background flatten on --heightmap input. "
+             "Use when your supplied heightmap already has a clean cutout.",
+    )
     parser.add_argument("--tile-size", type=int, default=0, help="Optional tile size for large images; 0 disables tiled inference")
     parser.add_argument("--tile-overlap", type=int, default=128, help="Overlap in pixels for tiled inference")
     parser.add_argument("--pad-input", dest="pad_input", action="store_true", default=None, help="Enable ZoeDepth padding augmentation")

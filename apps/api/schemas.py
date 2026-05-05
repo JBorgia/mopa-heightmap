@@ -97,6 +97,12 @@ class HeightmapSettings(BaseModel):
     pre_upscale_enabled: bool = False
     pre_upscale_resolver: str = "lanczos"
     pre_upscale_target_long_side: int = Field(1024, ge=64, le=8192)
+    # External heightmap input (sculptok/meshy bring-your-own-relief mode).
+    external_heightmap_path: str = ""
+    external_heightmap_polarity: Literal["bright_raised", "dark_raised", "auto"] = "bright_raised"
+    external_heightmap_auto_stretch: bool = True
+    external_heightmap_use_subject_mask: bool = True
+    external_heightmap_resampler: str = "realesrgan-x4plus"
     # Relief stylization (ControlNet-Depth + diffusion + bas-relief prompt).
     relief_stylize_enabled: bool = False
     relief_stylize_backend: str = "sdxl_controlnet_depth"

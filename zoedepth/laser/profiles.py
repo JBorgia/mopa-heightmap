@@ -91,6 +91,8 @@ _HEIGHTMAP_BOOL_KEYS = {
     "depth_bilateral_enabled",
     "pre_upscale_enabled",
     "relief_stylize_enabled",
+    "external_heightmap_auto_stretch",
+    "external_heightmap_use_subject_mask",
 }
 _HEIGHTMAP_STRING_KEYS = {
     "smooth",
@@ -102,6 +104,9 @@ _HEIGHTMAP_STRING_KEYS = {
     "signature_corner",
     "pre_upscale_resolver",
     "relief_stylize_backend",
+    "external_heightmap_path",
+    "external_heightmap_polarity",
+    "external_heightmap_resampler",
 }
 _VALID_SMOOTH_VALUES = {"none", "off", "bilateral", "gaussian"}
 _VALID_DETAIL_MODES = {"off", "luminance", "highpass", "both"}
@@ -253,9 +258,9 @@ def validate_profile(data: Dict[str, Any], profile_path: str = "<memory>") -> No
         elif key in _HEIGHTMAP_STRING_KEYS:
             if not isinstance(value, str):
                 errors.append(f"heightmap.{key} must be a string")
-            elif key == "signature_text":
-                # Empty string is meaningful — disables the signature
-                # pass — so we don't reject it here.
+            elif key in {"signature_text", "external_heightmap_path"}:
+                # Empty string is meaningful — disables the corresponding
+                # feature — so we don't reject it here.
                 pass
             elif not value.strip():
                 errors.append(f"heightmap.{key} must be a non-empty string")
@@ -270,6 +275,13 @@ def validate_profile(data: Dict[str, Any], profile_path: str = "<memory>") -> No
             elif key == "signature_corner" and value.lower() not in {"tl", "tr", "bl", "br"}:
                 errors.append(
                     f"heightmap.{key}={value!r} must be one of ['bl', 'br', 'tl', 'tr']"
+                )
+            elif key == "external_heightmap_polarity" and value.lower() not in {
+                "bright_raised", "dark_raised", "auto",
+            }:
+                errors.append(
+                    f"heightmap.{key}={value!r} must be one of "
+                    "['auto', 'bright_raised', 'dark_raised']"
                 )
             # _FREE_FORM_STRING_KEYS pass through after the non-empty check;
             # the runtime registry rejects unknown backend names with a

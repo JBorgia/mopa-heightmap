@@ -126,6 +126,17 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "pre_upscale_enabled": False,
     "pre_upscale_resolver": "lanczos",
     "pre_upscale_target_long_side": 1024,
+    # External heightmap input: when set, the depth network is bypassed
+    # and the supplied PNG/TIFF is used as the depth source. Use case:
+    # operator brings a sculptok / meshy.ai relief render alongside the
+    # original photo and our pipeline provides the engraving toolchain
+    # (subject mask, color quantisation, multi-pass .lbrn2/.clb export,
+    # calibration, burn-time, signature) on top.
+    "external_heightmap_path": "",
+    "external_heightmap_polarity": "bright_raised",   # | dark_raised | auto
+    "external_heightmap_auto_stretch": True,
+    "external_heightmap_use_subject_mask": True,
+    "external_heightmap_resampler": "realesrgan-x4plus",
     # Relief stylization: pass the photo + DAv2 depth through ControlNet-
     # Depth + bas-relief prompt to produce a stylized relief render, then
     # re-estimate depth on that stylized output. This recovers the high-
@@ -461,7 +472,17 @@ class HeightmapService:
         if bool(settings.get("delight_enabled", False)):
             conditioned = self._maybe_delight(conditioned, settings)
 
-        depth, image_hash = self.infer_depth(conditioned, cfg)
+        # External heightmap branch: skip our own depth network and use a
+        # precomputed heightmap from sculptok / meshy / hand-authored. The
+        # rest of the pipeline (mask, color quant, pass-stack, .lbrn2)
+        # runs unchanged on top.
+        external_path = str(settings.get("external_heightmap_path", "") or "").strip()
+        if external_path:
+            depth, image_hash = self._load_external_heightmap_as_depth(
+                conditioned, external_path, settings,
+            )
+        else:
+            depth, image_hash = self.infer_depth(conditioned, cfg)
         guide_rgb = np.asarray(conditioned)
 
         # Relief stylization (opt-in). Take the photo + our depth through
@@ -603,6 +624,82 @@ class HeightmapService:
 
         strength = float(np.clip(settings.get("relief_strength", 0.3), 0.0, 1.0))
         return (depth.astype(np.float32) + strength * relief_hp).astype(np.float32)
+
+    def _load_external_heightmap_as_depth(
+        self,
+        conditioned: Image.Image,
+        path: str,
+        settings: Mapping[str, Any],
+    ) -> tuple[np.ndarray, str]:
+        """Load a sculptok/meshy heightmap PNG and return it shaped like a depth array.
+
+        Returns ``(heightmap_in_zoedepth_polarity, image_hash)``. The
+        returned array is in our internal "larger value = farther from
+        camera" convention so :func:`process_depth_to_heightmap` runs
+        unchanged.
+
+        Internal flow:
+            1. Compute the BiRefNet alpha if the user opted in (it's the
+               canonical subject silhouette for the photo).
+            2. Load the external PNG, resize to the photo, polarity-
+               normalise, and (optionally) auto-stretch the in-subject
+               range to fill the engraving budget.
+            3. Convert from "bright = surface (1.0)" → "larger = farther"
+               by subtracting from 1.0, so downstream ``normalize_depth``
+               + ``orient_for_lightburn(black_is_deep=True)`` produces
+               the same heightmap polarity LightBurn expects.
+        """
+        from .exporter import hash_image
+        from .external_heightmap import (
+            DEFAULT_AUTO_STRETCH,
+            DEFAULT_POLARITY,
+            DEFAULT_RESAMPLE,
+            EXTERNAL_DEPTH_DEEP_LIMIT,
+            EXTERNAL_DEPTH_SURFACE_LIMIT,
+            fit_external_heightmap_to_photo,
+        )
+
+        photo_size = conditioned.size  # (W, H)
+        image_hash = hash_image(conditioned)
+
+        # Subject mask — only computed when the operator wants it
+        # applied. We reuse the subject_mask cache so a manual mask
+        # override flow stays a one-liner.
+        subject_alpha: np.ndarray | None = None
+        if bool(settings.get("external_heightmap_use_subject_mask", True)):
+            backend = str(settings.get("subject_mask_backend", "rembg"))
+            cache_key = f"{image_hash}|{backend}"
+            cached = self._mask_cache.get(cache_key)
+            if cached is not None:
+                subject_alpha = cached
+            else:
+                try:
+                    masker = self._get_masker(backend)
+                    subject_alpha = np.asarray(
+                        masker.infer(conditioned), dtype=np.float32,
+                    )
+                    self._cache_mask(cache_key, subject_alpha)
+                except Exception:
+                    subject_alpha = None
+
+        heightmap = fit_external_heightmap_to_photo(
+            path,
+            photo_size=photo_size,
+            subject_alpha=subject_alpha,
+            polarity=str(settings.get("external_heightmap_polarity", DEFAULT_POLARITY)),
+            auto_stretch=bool(settings.get("external_heightmap_auto_stretch", DEFAULT_AUTO_STRETCH)),
+            deep_limit=EXTERNAL_DEPTH_DEEP_LIMIT,
+            surface_limit=EXTERNAL_DEPTH_SURFACE_LIMIT,
+            background_value=float(settings.get("background_value", 1.0)),
+            resampler_key=str(settings.get("external_heightmap_resampler", DEFAULT_RESAMPLE)),
+            device=self._loaded_device or "cpu",
+        )
+
+        # ``heightmap`` is in LightBurn convention: 1.0=surface, 0.0=deepest.
+        # ``process_depth_to_heightmap`` expects ZoeDepth convention
+        # (larger=farther). Invert; downstream orient flips it back.
+        depth_like = (1.0 - heightmap).astype(np.float32)
+        return depth_like, image_hash
 
     def _stylize_and_redepth(
         self,
