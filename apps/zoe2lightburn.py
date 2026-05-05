@@ -23,7 +23,18 @@ def build_parser() -> argparse.ArgumentParser:
         description="Convert ZoeDepth output into LightBurn 3D Sliced-ready heightmaps."
     )
     parser.add_argument("input", nargs="*", help="Input image path(s); pass multiple for batch")
-    parser.add_argument("--output", help="Output PNG path for the 8-bit LightBurn heightmap")
+    parser.add_argument(
+        "--output",
+        help="Parent directory for the export bundle. Each export creates a "
+             "<output>/<bundle_name>/ folder containing 'final/' (drag-into-LightBurn) "
+             "and 'work/' (preview, settings, sources). Defaults to ./outputs/.",
+    )
+    parser.add_argument(
+        "--name",
+        dest="bundle_name",
+        default=None,
+        help="Override the bundle folder name (defaults to the input image's filename stem).",
+    )
     parser.add_argument("--profile", help="Material profile name or YAML path")
     parser.add_argument(
         "--model",
@@ -116,6 +127,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Photo-guided bilateral cross-filter on the raw depth (sharpens hair / "
              "fabric edges to photo edges).",
+    )
+    parser.add_argument(
+        "--photo-tonal",
+        dest="photo_tonal_enabled",
+        action="store_true",
+        default=None,
+        help="Add a low-power dithered photographic-luminance overlay pass on top "
+             "of the carved relief. Captures skin tone / fabric pattern / hair shading "
+             "from the photo (the depth model can't see those).",
+    )
+    parser.add_argument(
+        "--photo-tonal-strength",
+        dest="photo_tonal_strength",
+        type=float,
+        default=None,
+        help="Multiplier on the photo's luminance before dithering (0.0-1.0). Default 0.7.",
+    )
+    parser.add_argument(
+        "--photo-tonal-invert",
+        dest="photo_tonal_invert",
+        action="store_true",
+        default=None,
+        help="Invert the photo polarity (use when the engraving material is dark and "
+             "bright photo pixels should leave the surface alone).",
     )
     parser.add_argument(
         "--signature",
@@ -282,12 +317,28 @@ def _heightmap_overrides(args: argparse.Namespace) -> Dict[str, Any]:
     return {key: getattr(args, key, None) for key in DEFAULT_SETTINGS.keys()}
 
 
-def _resolve_output(input_path: Path, output: str | None, output_dir_default: str) -> tuple[Path, str]:
-    if output:
-        out_path = Path(output)
-        directory = out_path.parent if str(out_path.parent) not in {"", "."} else Path(output_dir_default)
-        return directory, out_path.stem
-    return Path(output_dir_default), input_path.stem
+def _resolve_output(
+    input_path: Path,
+    output: str | None,
+    output_dir_default: str,
+    *,
+    bundle_name: str | None = None,
+) -> tuple[Path, str]:
+    """Map ``--output`` (and optional ``--name``) to ``(parent_dir, bundle_name)``.
+
+    With the per-bundle directory layout, ``--output`` is interpreted as
+    the *parent* directory under which a per-export folder is created.
+    The bundle's folder name comes from ``--name`` if supplied, otherwise
+    from the input image's filename stem.
+
+    Examples:
+        --output outputs              -> outputs/<input_stem>/{final,work}
+        --output outputs --name king  -> outputs/king/{final,work}
+        (no --output)                 -> <default_dir>/<input_stem>/{final,work}
+    """
+    parent = Path(output) if output else Path(output_dir_default)
+    stem = bundle_name.strip() if bundle_name and bundle_name.strip() else input_path.stem
+    return parent, stem
 
 
 def _print_bundle(bundle) -> None:
@@ -331,7 +382,10 @@ def _run_rerun(args: argparse.Namespace, app_settings) -> None:
     for input_path in inputs:
         if not input_path.exists():
             raise FileNotFoundError(f"Input image not found: {input_path}")
-        output_dir, stem = _resolve_output(input_path, args.output, app_settings.output.directory)
+        output_dir, stem = _resolve_output(
+            input_path, args.output, app_settings.output.directory,
+            bundle_name=args.bundle_name,
+        )
         request = request_for_sidecar(
             payload, output_dir, stem,
             naming=args.naming or "counter",
@@ -461,11 +515,14 @@ def main() -> None:
     service = HeightmapService(app_settings=app_settings)
     multi = len(inputs) > 1
     for index, input_path in enumerate(inputs):
-        # In batch mode, --output is interpreted as a directory only.
-        if multi and args.output:
-            output_dir, stem = Path(args.output), input_path.stem
-        else:
-            output_dir, stem = _resolve_output(input_path, args.output, app_settings.output.directory)
+        # ``--output`` is always the parent directory now; the bundle
+        # folder under it gets its name from --name (when set) or the
+        # input file's stem. In batch mode each input still gets its own
+        # bundle folder under that parent.
+        output_dir, stem = _resolve_output(
+            input_path, args.output, app_settings.output.directory,
+            bundle_name=args.bundle_name if not multi else None,
+        )
 
         pass_toggles = {kind: False for kind in args.disable_passes}
         request = ExportRequest(

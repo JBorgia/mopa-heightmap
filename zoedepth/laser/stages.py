@@ -44,6 +44,7 @@ __all__ = [
     "PASS_KIND_DETAIL",
     "PASS_KIND_SHADING",
     "PASS_KIND_POLISH",
+    "PASS_KIND_PHOTO_TONAL",
     "PASS_KIND_COLOR_PREFIX",
     "PASS_KIND_SIGNATURE",
 ]
@@ -57,22 +58,31 @@ PASS_KIND_CLEANUP = "cleanup"
 PASS_KIND_DETAIL = "detail"
 PASS_KIND_SHADING = "shading"
 PASS_KIND_POLISH = "polish"
+# Photo-derived tonal layer: low-power dithered surface treatment that
+# uses the original photo's grayscale, applied on top of the carved
+# relief. Distinct from the heightmap-band SHADING pass — this one
+# captures the photographic luminance the depth network can't see
+# (skin tone gradients, hair shadow, fabric color hints).
+PASS_KIND_PHOTO_TONAL = "photo_tonal"
 PASS_KIND_SIGNATURE = "signature"
 # Per-color pass keys are formed as ``{PASS_KIND_COLOR_PREFIX}{color_name}``
 # (e.g. ``"color:C03"``). Keeps every key unique while letting the planner
 # group them via ``startswith``.
 PASS_KIND_COLOR_PREFIX = "color:"
 
-# Canonical execution order. Color passes are inserted between SHADING and
-# POLISH at plan time (one entry per active color, in their card index).
+# Canonical execution order. Color passes are inserted between POLISH and
+# PHOTO_TONAL at plan time (one entry per active color, in their card
+# index). Photo tonal runs LAST among the raster passes so it sits on
+# top of all carved relief; signature comes after all of them.
 DEFAULT_PASS_ORDER: tuple[str, ...] = (
     PASS_KIND_PRE_CLEAN,
     PASS_KIND_FORM,
     PASS_KIND_CLEANUP,
     PASS_KIND_DETAIL,
     PASS_KIND_SHADING,
-    # color passes go here
     PASS_KIND_POLISH,
+    # color passes go here
+    PASS_KIND_PHOTO_TONAL,
     PASS_KIND_SIGNATURE,
 )
 
@@ -174,13 +184,14 @@ def _build_kind_pass(
 # LightBurn card defaults; if the user's profile uses different names
 # they should override via ``kind_color_overrides``.
 _KIND_DEFAULTS: Dict[str, tuple[str, str, tuple[str, ...]]] = {
-    PASS_KIND_PRE_CLEAN: ("C00", "Defocused oxidation/oil burn-off.", ()),
-    PASS_KIND_FORM:      ("C01", "Bulk relief (heightmap).", ()),
-    PASS_KIND_CLEANUP:   ("C02", "Edge contour to suppress chatter.", (PASS_KIND_FORM,)),
-    PASS_KIND_DETAIL:    ("C03", "High-frequency micro-relief.", (PASS_KIND_FORM,)),
-    PASS_KIND_SHADING:   ("C04", "Soft photometric shading.", (PASS_KIND_FORM,)),
-    PASS_KIND_POLISH:    ("C05", "Final dithered surface pass.", (PASS_KIND_FORM,)),
-    PASS_KIND_SIGNATURE: ("C06", "Vector signature / monogram.", ()),
+    PASS_KIND_PRE_CLEAN:   ("C00", "Defocused oxidation/oil burn-off.", ()),
+    PASS_KIND_FORM:        ("C01", "Bulk relief (heightmap).", ()),
+    PASS_KIND_CLEANUP:     ("C02", "Edge contour to suppress chatter.", (PASS_KIND_FORM,)),
+    PASS_KIND_DETAIL:      ("C03", "High-frequency micro-relief.", (PASS_KIND_FORM,)),
+    PASS_KIND_SHADING:     ("C04", "Soft photometric shading.", (PASS_KIND_FORM,)),
+    PASS_KIND_POLISH:      ("C05", "Final dithered surface pass.", (PASS_KIND_FORM,)),
+    PASS_KIND_PHOTO_TONAL: ("C07", "Photo-derived tonal layer.", (PASS_KIND_POLISH,)),
+    PASS_KIND_SIGNATURE:   ("C06", "Vector signature / monogram.", ()),
 }
 
 

@@ -92,11 +92,14 @@ def test_export_lbrn2_writes_project_and_pngs(
     root = tree.getroot()
     assert root.tag == "LightBurnProject"
 
-    # Per-pass PNGs were written and live next to the project.
+    # Per-pass PNGs were written and live next to the project (in the
+    # ``<output_dir>/<stem>/final/`` subdirectory).
     assert bundle.pass_png_paths
+    final_dir = tmp_path / "bundle" / "final"
     for png_path in bundle.pass_png_paths.values():
         assert png_path.exists()
-        assert png_path.parent == tmp_path
+        assert png_path.parent == final_dir
+        assert png_path.parent == bundle.lbrn2_path.parent
         assert png_path.suffix == ".png"
 
 

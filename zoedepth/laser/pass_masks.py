@@ -33,10 +33,13 @@ __all__ = [
     "detail_mask",
     "shading_mask",
     "polish_mask",
+    "photo_tonal_mask",
     "DEFAULT_FORM_THRESHOLD",
     "DEFAULT_CLEANUP_RADIUS_PX",
     "DEFAULT_DETAIL_SIGMA_PX",
     "DEFAULT_SHADING_SIGMA_PX",
+    "DEFAULT_PHOTO_TONAL_LEVELS",
+    "DEFAULT_PHOTO_TONAL_STRENGTH",
 ]
 
 
@@ -55,6 +58,17 @@ DEFAULT_CLEANUP_RADIUS_PX: int = 6
 # sigma sends macro form to the Shading layer.
 DEFAULT_DETAIL_SIGMA_PX: float = 4.0
 DEFAULT_SHADING_SIGMA_PX: float = 24.0
+
+# Floyd-Steinberg dither levels for the photo-tonal pass. 16 gives a
+# pleasant ordered-appearance dither; 256 is effectively continuous-tone
+# (use when the engraver itself does the half-toning at the laser
+# parameters layer).
+DEFAULT_PHOTO_TONAL_LEVELS: int = 32
+
+# Default tonal strength: the photo's luminance is multiplied by this
+# before going through the dither + subject mask. 1.0 = full photo
+# contrast; 0.5 cuts visual impact in half so the relief still reads.
+DEFAULT_PHOTO_TONAL_STRENGTH: float = 0.7
 
 
 def _gaussian_blur(arr: np.ndarray, sigma: float) -> np.ndarray:
@@ -187,6 +201,99 @@ def polish_mask(
 ) -> np.ndarray:
     """Full subject mask — the polish pass touches every engraved pixel."""
     return form_mask(heightmap, threshold=threshold, feather_px=1)
+
+
+def photo_tonal_mask(
+    photo_rgb: np.ndarray,
+    subject_alpha: np.ndarray | None,
+    *,
+    invert: bool = False,
+    dither: bool = True,
+    dither_levels: int = DEFAULT_PHOTO_TONAL_LEVELS,
+    strength: float = DEFAULT_PHOTO_TONAL_STRENGTH,
+) -> np.ndarray:
+    """Convert the photo to a "fire-the-laser-more" intensity mask.
+
+    Returns a float32 ``[0, 1]`` array where **higher value = more laser
+    firing**. The pass-stack wiring (``_emit_pass_stack``) then converts
+    that to a layer PNG via ``layer = 1.0 - mask * photo_tonal_depth``
+    so dark photo regions land at the configured engraving depth and
+    bright photo regions stay near the surface.
+
+    Default polarity (``invert=False``) for engraving-on-bright-metal:
+
+        * **Dark photo region** (beard, hair, eye sockets)
+          → mask high → laser fires → metal carved darker.
+        * **Bright photo region** (skin, lit fabric)
+          → mask low → laser barely fires → metal stays as-is.
+        * **Background** (outside the BiRefNet subject)
+          → mask zero → laser doesn't fire.
+
+    Use ``invert=True`` for unusual materials where the engraving
+    process *adds* lightness (titanium anneal colors on dark steel).
+
+    Parameters
+    ----------
+    photo_rgb
+        ``(H, W, 3)`` uint8 RGB array of the source photo.
+    subject_alpha
+        Optional ``(H, W)`` float32 mask in ``[0, 1]`` from BiRefNet /
+        rembg. The output is multiplied by this so we never engrave
+        photo data onto the flat background. Pass ``None`` to skip
+        gating.
+    invert
+        Flip the polarity above (bright photo fires laser, dark stays).
+    dither
+        Run Floyd–Steinberg dithering on the result. Default ``True``
+        because most laser pulse-power curves are non-linear and
+        ordered dither produces flatter midtones than continuous-tone
+        gradients.
+    dither_levels
+        Quantisation steps when ``dither=True``. Lower → more visible
+        pattern; higher → smoother.
+    strength
+        Multiplier on the photo's contribution before subject-gating.
+        ``1.0`` is full contrast; lower values cut visual impact so the
+        underlying carved relief still reads.
+    """
+    arr = np.asarray(photo_rgb)
+    if arr.dtype == np.uint8:
+        arr = arr.astype(np.float32) / 255.0
+    elif arr.max(initial=0.0) > 1.5:
+        arr = arr.astype(np.float32) / 255.0
+    else:
+        arr = arr.astype(np.float32)
+    if arr.ndim == 3 and arr.shape[-1] >= 3:
+        luma = (
+            0.2126 * arr[..., 0]
+            + 0.7152 * arr[..., 1]
+            + 0.0722 * arr[..., 2]
+        )
+    elif arr.ndim == 2:
+        luma = arr
+    else:
+        luma = arr[..., 0]
+    luma = np.clip(luma, 0.0, 1.0)
+    # Default: engrave-more where the photo is dark. Caller flips for
+    # contrarian materials.
+    if not invert:
+        luma = 1.0 - luma
+    luma = luma * float(np.clip(strength, 0.0, 1.0))
+
+    if subject_alpha is not None:
+        if subject_alpha.shape != luma.shape:
+            raise ValueError(
+                f"subject_alpha shape {subject_alpha.shape} does not match "
+                f"photo shape {luma.shape}"
+            )
+        luma = luma * subject_alpha.astype(np.float32, copy=False)
+
+    if dither:
+        from .heightmap import floyd_steinberg_dither
+
+        luma = floyd_steinberg_dither(luma, levels=int(max(2, dither_levels)))
+
+    return np.clip(luma, 0.0, 1.0).astype(np.float32)
 
 
 def derive_pass_masks(

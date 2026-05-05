@@ -64,6 +64,9 @@ _HEIGHTMAP_NUMERIC_RANGES: Dict[str, Tuple[float | None, float | None]] = {
     "signature_height_fraction": (0.005, 0.5),
     "signature_margin_fraction": (0.0, 0.5),
     "signature_depth_fraction": (0.0, 1.0),
+    "photo_tonal_levels": (2, 1024),
+    "photo_tonal_strength": (0.0, 1.0),
+    "photo_tonal_depth_fraction": (0.0, 1.0),
     "pre_upscale_target_long_side": (64, 8192),
     "relief_stylize_steps": (4, 200),
     "relief_stylize_guidance": (0.0, 20.0),
@@ -93,6 +96,9 @@ _HEIGHTMAP_BOOL_KEYS = {
     "relief_stylize_enabled",
     "external_heightmap_auto_stretch",
     "external_heightmap_use_subject_mask",
+    "photo_tonal_enabled",
+    "photo_tonal_invert",
+    "photo_tonal_dither",
 }
 _HEIGHTMAP_STRING_KEYS = {
     "smooth",

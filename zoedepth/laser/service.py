@@ -152,6 +152,22 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "relief_stylize_controlnet_strength": 0.95,
     "relief_stylize_seed": 0,            # 0 = random, otherwise reproducible
     "relief_stylize_blend": 1.0,         # 0 = original depth, 1 = stylized depth
+    # Photo-tonal pass — low-power dithered photographic luminance overlay
+    # layered on top of the carved relief. Distinct from the heightmap-
+    # derived SHADING pass: that one comes from the depth field's mid-
+    # frequency band; this one comes from the actual photo's grayscale
+    # so it captures skin tone, fabric pattern, hair shading the depth
+    # network can't see. Off by default; flip on for portrait jobs where
+    # you want a photographic hint underneath the sculpted relief.
+    "photo_tonal_enabled": False,
+    "photo_tonal_invert": False,
+    "photo_tonal_dither": True,
+    "photo_tonal_levels": 32,
+    "photo_tonal_strength": 0.7,
+    # How deep the photo-tonal layer can carve, as a fraction of the
+    # full engraving budget. 0.4 = max 40 % depth — tonal contrast on
+    # top of the deeper relief without competing with the form pass.
+    "photo_tonal_depth_fraction": 0.4,
     # Signature pass — render a small text label into the configured corner.
     # An empty string disables the signature pass entirely.
     "signature_text": "",
@@ -895,11 +911,30 @@ class HeightmapService:
             keep_history=request.keep_history,
         )
 
-        lightburn_path = request.output_dir / f"{stem}_lightburn.png"
-        master16_path = request.output_dir / f"{stem}_master16.png"
-        preview_path = request.output_dir / f"{stem}_preview.png" if request.write_preview else None
-        ramp_path = request.output_dir / f"{stem}_ramp.png" if request.write_calibration_ramp else None
-        settings_path = request.output_dir / f"{stem}_settings.json"
+        # New layout (May 2026): each export gets its own directory.
+        #
+        #   <output_dir>/<stem>/
+        #     final/         <- drag this folder into LightBurn
+        #       project.lbrn2 + cut-library.clb + lightburn.png
+        #       master16.png + pass_*.png (siblings of .lbrn2 so its
+        #       relative SourceFile refs continue to resolve)
+        #     work/          <- support / debug artefacts
+        #       preview.png + settings.json + ramp.png + sculptok PNG
+        #
+        # Splitting "deliverables" from "work" makes it obvious what to
+        # transfer to a laser-shop machine and what stays on the design
+        # workstation.
+        bundle_root = request.output_dir / stem
+        final_dir = bundle_root / "final"
+        work_dir = bundle_root / "work"
+        final_dir.mkdir(parents=True, exist_ok=True)
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        lightburn_path = final_dir / "lightburn.png"
+        master16_path = final_dir / "master16.png"
+        preview_path = work_dir / "preview.png" if request.write_preview else None
+        ramp_path = work_dir / "ramp.png" if request.write_calibration_ramp else None
+        settings_path = work_dir / "settings.json"
 
         _exporter.save_lightburn_png(result.heightmap, lightburn_path)
         _exporter.save_master16_png(result.heightmap, master16_path)
@@ -918,8 +953,7 @@ class HeightmapService:
                     image,
                     heightmap=result.heightmap,
                     settings=result.settings,
-                    output_dir=request.output_dir,
-                    stem=stem,
+                    final_dir=final_dir,
                     request=request,
                     profile_name=profile_name,
                     profile_data=profile_data,
@@ -1020,13 +1054,16 @@ class HeightmapService:
         *,
         heightmap: np.ndarray,
         settings: Mapping[str, Any],
-        output_dir: Path,
-        stem: str,
+        final_dir: Path,
         request: ExportRequest,
         profile_name: str | None,
         profile_data: Mapping[str, Any] | None,
     ) -> tuple[Dict[str, Path], Path | None, Path | None, Dict[str, Any] | None]:
         """Build per-pass masks + PNGs, plan passes, emit .lbrn2 and .clb.
+
+        Writes everything (.lbrn2, .clb, per-pass PNGs) into ``final_dir``
+        with canonical filenames so the .lbrn2's relative ``SourceFile``
+        attributes resolve to the sibling PNGs.
 
         Returns ``(pass_png_paths, lbrn2_path, clb_path, burn_estimate_dict)``.
         Any of them may be empty/None depending on what was requested.
@@ -1037,7 +1074,12 @@ class HeightmapService:
         from .lightburn_cards import DEFAULT_CARDS_DIR, DEFAULT_PROFILE_NAME, load_lightburn_card
         from .pass_masks import derive_pass_masks
         from .signature import render_text_signature_mask
-        from .stages import PASS_KIND_FORM, PASS_KIND_SIGNATURE, plan_passes
+        from .stages import (
+            PASS_KIND_FORM,
+            PASS_KIND_PHOTO_TONAL,
+            PASS_KIND_SIGNATURE,
+            plan_passes,
+        )
 
         # 1. Resolve which LightBurn card supplies the cut settings.
         card_name = request.lightburn_card or profile_name or DEFAULT_PROFILE_NAME
@@ -1051,6 +1093,40 @@ class HeightmapService:
 
         # 2. Derive per-pass raster masks from the heightmap.
         kind_masks = derive_pass_masks(heightmap)
+
+        # 2a. Optional photo-tonal mask: low-power dithered photo-luminance
+        # overlay layered ON TOP of the carved relief. Distinct from the
+        # heightmap-band SHADING pass — captures photographic detail
+        # (skin tone, fabric pattern, hair shading) that the depth model
+        # never saw. Subject-mask gated so we don't engrave photo onto
+        # the flat background.
+        if bool(settings.get("photo_tonal_enabled", False)):
+            from .pass_masks import (
+                DEFAULT_PHOTO_TONAL_LEVELS,
+                DEFAULT_PHOTO_TONAL_STRENGTH,
+                photo_tonal_mask,
+            )
+
+            photo_arr = np.asarray(image.convert("RGB"))
+            # Resize photo to heightmap shape if they diverged (e.g.
+            # because external_heightmap upscaled the heightmap).
+            if photo_arr.shape[:2] != heightmap.shape:
+                from PIL import Image as _PILImage
+                photo_arr = np.asarray(
+                    image.convert("RGB").resize(
+                        (heightmap.shape[1], heightmap.shape[0]),
+                        _PILImage.LANCZOS,
+                    )
+                )
+            subject_alpha = kind_masks.get(PASS_KIND_FORM)
+            kind_masks[PASS_KIND_PHOTO_TONAL] = photo_tonal_mask(
+                photo_arr,
+                subject_alpha,
+                invert=bool(settings.get("photo_tonal_invert", False)),
+                dither=bool(settings.get("photo_tonal_dither", True)),
+                dither_levels=int(settings.get("photo_tonal_levels", DEFAULT_PHOTO_TONAL_LEVELS)),
+                strength=float(settings.get("photo_tonal_strength", DEFAULT_PHOTO_TONAL_STRENGTH)),
+            )
 
         # 2b. Optional signature mask: replace the default full-frame mask
         # for the signature pass with a small text rendering. Empty text
@@ -1096,13 +1172,26 @@ class HeightmapService:
         sig_depth = float(np.clip(
             settings.get("signature_depth_fraction", 0.6), 0.0, 1.0,
         ))
+        photo_tonal_depth = float(np.clip(
+            settings.get("photo_tonal_depth_fraction", 0.4), 0.0, 1.0,
+        ))
         pngs: Dict[str, Path] = {}
         for idx, ep in enumerate(plan.passes):
-            png_name = f"{stem}_pass_{idx:02d}_{ep.kind.replace(':', '_')}.png"
-            png_path = output_dir / png_name
+            # Canonical per-pass filename inside the bundle: ``pass_NN_kind.png``.
+            # No stem prefix because every file in ``final_dir`` already
+            # belongs to this single export.
+            png_name = f"pass_{idx:02d}_{ep.kind.replace(':', '_')}.png"
+            png_path = final_dir / png_name
             mask = ep.mask.astype(np.float32, copy=False)
             if ep.kind == PASS_KIND_SIGNATURE and sig_depth > 0.0:
+                # Signature: fixed depth, independent of master heightmap.
                 layer = 1.0 - mask * sig_depth
+            elif ep.kind == PASS_KIND_PHOTO_TONAL and photo_tonal_depth > 0.0:
+                # Photo tonal: depth driven by the photo's luminance,
+                # NOT the master heightmap. Mask carries "fire more"
+                # intensity from the dithered (1 - photo_luma) signal,
+                # gated by subject silhouette in pass_masks.
+                layer = 1.0 - mask * photo_tonal_depth
             else:
                 layer = 1.0 - (1.0 - heightmap) * mask
             _exporter.save_master16_png(
@@ -1113,7 +1202,7 @@ class HeightmapService:
 
         lbrn2_path: Path | None = None
         if request.write_lbrn2:
-            lbrn2_path = output_dir / f"{stem}.lbrn2"
+            lbrn2_path = final_dir / "project.lbrn2"
             write_lbrn(
                 lbrn2_path,
                 plan,
@@ -1123,7 +1212,7 @@ class HeightmapService:
 
         clb_path: Path | None = None
         if request.write_clb:
-            clb_path = output_dir / f"{stem}.clb"
+            clb_path = final_dir / "cut-library.clb"
             # Cut Library carries every entry the plan touched.
             entries = list({ep.cut_setting.index: ep.cut_setting for ep in plan.passes}.values())
             write_clb(clb_path, entries)

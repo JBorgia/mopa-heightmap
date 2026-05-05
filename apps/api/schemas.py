@@ -87,6 +87,13 @@ class HeightmapSettings(BaseModel):
     depth_bilateral_diameter: int = Field(9, ge=1, le=50)
     depth_bilateral_sigma_color: float = Field(0.05, ge=0.0, le=1.0)
     depth_bilateral_sigma_space: float = Field(8.0, ge=0.1, le=50.0)
+    # Photo-tonal pass: low-power photographic-luminance overlay.
+    photo_tonal_enabled: bool = False
+    photo_tonal_invert: bool = False
+    photo_tonal_dither: bool = True
+    photo_tonal_levels: int = Field(32, ge=2, le=1024)
+    photo_tonal_strength: float = Field(0.7, ge=0.0, le=1.0)
+    photo_tonal_depth_fraction: float = Field(0.4, ge=0.0, le=1.0)
     # Signature pass content.
     signature_text: str = ""
     signature_corner: Literal["tl", "tr", "bl", "br"] = "br"
