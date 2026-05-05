@@ -51,6 +51,8 @@ __all__ = [
     "normalise_polarity",
     "auto_stretch_subject",
     "fit_external_heightmap_to_photo",
+    "align_photo_to_heightmap",
+    "probe_heightmap_size",
     "Polarity",
     "DEFAULT_POLARITY",
     "DEFAULT_AUTO_STRETCH",
@@ -271,6 +273,42 @@ def load_external_heightmap(
             + 0.0722 * rgb[..., 2]
         ).astype(np.float32)
     return arr
+
+
+def probe_heightmap_size(path: str | Path) -> Tuple[int, int]:
+    """Return ``(width, height)`` of the heightmap PNG without decoding pixels.
+
+    Used by :func:`align_photo_to_heightmap` to size the photo before
+    we even read the heightmap into memory.
+    """
+    src = Path(path)
+    if not src.exists():
+        raise FileNotFoundError(f"External heightmap not found: {src}")
+    with Image.open(src) as h:
+        return h.size  # PIL convention: (width, height)
+
+
+def align_photo_to_heightmap(
+    photo: Image.Image,
+    heightmap_path: str | Path,
+) -> Image.Image:
+    """Resize ``photo`` to match the heightmap's native resolution.
+
+    External heightmaps from sculptok / meshy typically arrive at much
+    higher resolution than the source photo (e.g. a 540 px snapshot
+    becomes a 2 k or 4 k Sculptok PNG). Resizing the photo to match
+    the heightmap with plain Lanczos preserves the heightmap's full
+    detail in the engraving while skipping the heavy Real-ESRGAN x4
+    step that drives ~5 min of GPU time in ``pre_upscale_enabled``
+    mode.
+
+    No-op when the photo is already at the heightmap's resolution. We
+    Lanczos-downsample if the photo happens to be larger (rare).
+    """
+    target_size = probe_heightmap_size(heightmap_path)
+    if photo.size == target_size:
+        return photo
+    return photo.resize(target_size, Image.LANCZOS)
 
 
 def fit_external_heightmap_to_photo(

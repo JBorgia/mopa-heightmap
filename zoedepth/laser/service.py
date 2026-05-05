@@ -459,10 +459,21 @@ class HeightmapService:
             cond_payload["max_input_dim"] = cond_payload.pop("max_dim")
         conditioned = condition_input(image, settings_from_mapping(cond_payload))
 
-        # Pre-depth super-resolution (opt-in). Upscale small inputs so the
-        # depth backbone sees more pixels. Real-ESRGAN x4 (BSD-3) is the
-        # quality option; ``lanczos`` is the zero-dep fallback.
-        if bool(settings.get("pre_upscale_enabled", False)):
+        # Bring-your-own-heightmap mode short-circuits Real-ESRGAN: the
+        # photo is no longer feeding a depth network, so the only reason
+        # we'd care about its resolution is to match the supplied
+        # heightmap. Lanczos-resize is ~5 min faster on a 4 GB GPU and
+        # gives identical downstream results because the heightmap
+        # carries all the engraving detail. ``pre_upscale_enabled`` is
+        # ignored in this path even when the active profile sets it.
+        external_path = str(settings.get("external_heightmap_path", "") or "").strip()
+        if external_path and Path(external_path).exists():
+            from .external_heightmap import align_photo_to_heightmap
+            conditioned = align_photo_to_heightmap(conditioned, external_path)
+        elif bool(settings.get("pre_upscale_enabled", False)):
+            # Pre-depth super-resolution (opt-in). Upscale small inputs so
+            # the depth backbone sees more pixels. Real-ESRGAN x4 (BSD-3)
+            # is the quality option; ``lanczos`` is the zero-dep fallback.
             from .super_resolution import auto_upscale
             try:
                 conditioned = auto_upscale(
