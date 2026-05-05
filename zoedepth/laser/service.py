@@ -31,7 +31,6 @@ from .imgproc import condition_input, settings_from_mapping
 from .preview import create_calibration_ramp, render_preview
 from .profiles import load_profile
 from .settings import AppSettings, resolve_device, resolve_precision
-from .tiling import infer_tiled_pil
 
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
