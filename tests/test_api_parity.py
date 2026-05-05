@@ -17,7 +17,6 @@ from PIL import Image
 from zoedepth.laser.service import (
     DEFAULT_SETTINGS,
     HeightmapService,
-    InferenceConfig as LaserInferenceConfig,
     merge_profile_settings,
 )
 from zoedepth.laser.settings import AppSettings
@@ -84,7 +83,7 @@ def uploaded_image_id(client, gradient_png_bytes) -> str:
 class _StubService:
     """Replaces HeightmapService.render() with a deterministic output."""
 
-    def render(self, image: Image.Image, settings: dict, cfg: LaserInferenceConfig):
+    def render(self, image: Image.Image, settings: dict):
         from zoedepth.laser.service import PreviewResult
         arr = np.zeros((image.height, image.width), dtype=np.float32)
         # Simple fill: mean of red channel / 255
@@ -208,7 +207,7 @@ def test_parity_service_vs_api(client, gradient_png_bytes):
     # --- Direct call via stub ---
     img = _make_gradient_image()
     stub = _StubService()
-    direct_result = stub.render(img, dict(DEFAULT_SETTINGS), LaserInferenceConfig())
+    direct_result = stub.render(img, dict(DEFAULT_SETTINGS))
     direct_heightmap = direct_result.heightmap  # float32 array
 
     # --- API round-trip ---

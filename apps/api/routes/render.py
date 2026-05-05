@@ -15,7 +15,6 @@ async def render(req: RenderRequest) -> RenderResponse:
         return do_render(
             image_id=req.image_id,
             settings=req.settings,
-            inference=req.inference,
             profile_name=req.profile_name,
         )
     except KeyError as exc:

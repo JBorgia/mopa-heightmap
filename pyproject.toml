@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "mopa-heightmap"
 version = "0.2.0"
-description = "ZoeDepth → LightBurn 3D Sliced heightmap studio for JPT MOPA fiber galvo engravers."
+description = "Sculptok → LightBurn 3D Sliced bundle generator for JPT MOPA fiber galvo engravers."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "MOPA Heightmap Studio contributors" }]
-keywords = ["lightburn", "mopa", "fiber-laser", "engraving", "depth", "zoedepth", "heightmap"]
+keywords = ["lightburn", "mopa", "fiber-laser", "engraving", "sculptok", "heightmap"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: GPU :: NVIDIA CUDA",
@@ -43,22 +43,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ui = [
-    "gradio>=4.44,<5",
-    # Gradio 4.x has not been updated to track post-0.40 Starlette /
-    # post-0.113 FastAPI signatures; pin the working window.
-    "fastapi>=0.110,<0.113",
-    "starlette>=0.36,<0.40",
-]
-# Depth-Anything-V2 backend (Apache-2.0 weights) — opt-in: only needed when
-# the user picks ``DAv2_*`` in the model dropdown. Keeps the base install
-# slim and avoids pulling transformers when only ZoeDepth is used.
-dav2 = [
-    "transformers>=4.40,<5",
-    "safetensors>=0.4",
-]
-# Subject-mask backends — opt-in. ``rembg`` is the default (CPU ONNX, MIT);
-# ``birefnet`` and ``rmbg2`` reuse the dav2 transformers stack.
+# Subject-mask backends — opt-in. ``rembg`` is the default (CPU ONNX, MIT).
 mask = [
     "rembg>=2.0,<3",
     "onnxruntime>=1.16",
@@ -67,11 +52,9 @@ dev = [
     "pytest>=7",
     "pytest-cov>=4",
 ]
-# Phase 2/3 image suite extras (rembg, real-esrgan) will land here later.
 
 [project.scripts]
 mopa-heightmap = "apps.zoe2lightburn:main"
-mopa-studio = "ui.mopa_studio:launch"
 
 [project.urls]
 Homepage = "https://github.com/your-org/mopa-heightmap"
@@ -81,7 +64,7 @@ Documentation = "https://github.com/your-org/mopa-heightmap/blob/main/docs/PLAN.
 # The repo predates a single src/ layout: we ship code from three top-level
 # folders. Tell hatchling which ones to include in the wheel.
 [tool.hatch.build.targets.wheel]
-packages = ["zoedepth", "apps", "ui"]
+packages = ["zoedepth", "apps"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "profiles" = "mopa_heightmap_assets/profiles"
@@ -90,12 +73,10 @@ packages = ["zoedepth", "apps", "ui"]
 include = [
     "/zoedepth",
     "/apps",
-    "/ui",
     "/profiles",
     "/docs/PLAN.md",
     "/README.md",
     "/LICENSE",
-    "/environment.yml",
 ]
 
 # ----------------------------------------------------------------- pytest

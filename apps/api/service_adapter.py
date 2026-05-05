@@ -20,7 +20,6 @@ from PIL import Image
 from zoedepth.laser.service import (
     DEFAULT_SETTINGS,
     HeightmapService,
-    InferenceConfig as _LaserInferenceConfig,
     PreviewResult,
     merge_profile_settings,
 )
@@ -55,7 +54,6 @@ from zoedepth.laser.stages import plan_passes as _plan_passes
 from . import blob_store
 from .schemas import (
     HeightmapSettings,
-    InferenceConfig as ApiInferenceConfig,
     MaskResponse,
     PassEntry,
     PassPlanResponse,
@@ -114,19 +112,6 @@ def heightmap_settings_to_dict(s: HeightmapSettings) -> Dict[str, Any]:
     return s.model_dump()
 
 
-def inference_config_to_laser(c: ApiInferenceConfig) -> _LaserInferenceConfig:
-    return _LaserInferenceConfig(
-        model_name=c.model_name,
-        device=c.device,
-        pad_input=c.pad_input,
-        with_flip_aug=c.with_flip_aug,
-        tile_size=c.tile_size,
-        tile_overlap=c.tile_overlap,
-        precision=c.precision,
-        inference_resolution=c.inference_resolution,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Render
 # ---------------------------------------------------------------------------
@@ -134,7 +119,6 @@ def inference_config_to_laser(c: ApiInferenceConfig) -> _LaserInferenceConfig:
 def do_render(
     image_id: str,
     settings: HeightmapSettings,
-    inference: ApiInferenceConfig,
     profile_name: Optional[str] = None,
 ) -> RenderResponse:
     image = get_upload(image_id)
@@ -149,10 +133,9 @@ def do_render(
             profile_data = {}
 
     merged = merge_profile_settings(profile_data, heightmap_settings_to_dict(settings))
-    cfg = inference_config_to_laser(inference)
     svc = get_service()
 
-    result: PreviewResult = svc.render(image, merged, cfg)
+    result: PreviewResult = svc.render(image, merged)
 
     heightmap_id = blob_store.store_heightmap(result.heightmap)
     preview_id = blob_store.store_image(result.preview_image, mode="8bit")
@@ -436,9 +419,8 @@ def do_plan(
     )
     plan_id = store_plan(result)
 
-    target_depth_um = settings.target_depth_um if settings else 0.0
     n = len(result.passes)
-    per_pass_depth = target_depth_um / n if n > 0 else 0.0
+    per_pass_depth = 0.0  # depth_um set by LightBurn cut settings, not service
 
     entries = [
         PassEntry(
