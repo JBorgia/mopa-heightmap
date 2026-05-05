@@ -46,7 +46,19 @@ def load_state_dict(model, state_dict):
 
         state[k] = v
 
-    model.load_state_dict(state)
+    # `strict=False` tolerates obsolete buffers like
+    # `*.attn.relative_position_index` that newer timm registers as
+    # non-persistent. The v1.0 checkpoint still contains them.
+    incompatible = model.load_state_dict(state, strict=False)
+    unexpected = [
+        k for k in getattr(incompatible, "unexpected_keys", [])
+        if not k.endswith(".attn.relative_position_index")
+    ]
+    missing = list(getattr(incompatible, "missing_keys", []))
+    if unexpected or missing:
+        raise RuntimeError(
+            f"State-dict mismatch — missing={missing} unexpected={unexpected}"
+        )
     print("Loaded successfully")
     return model
 

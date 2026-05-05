@@ -1,0 +1,32 @@
+name: mopa_60w_stainless
+machine: "60W MOPA fiber"
+lightburn_mode: "3D Sliced"
+black_is_deep: true
+
+heightmap:
+  near_percentile: 4
+  far_percentile: 96
+  gamma: 0.78
+  contrast: 1.05
+  midtone_boost: 0.06
+  deep_limit: 0.05
+  surface_limit: 0.94
+  smooth: bilateral
+  smooth_diameter: 9
+  smooth_strength: 0.07
+  sharpen: 0.18
+  sharpen_sigma: 2.0
+  flatten_background: true
+  background_threshold: 0.9
+  background_value: 1.0
+
+lightburn_starting_point:
+  lens: "150mm"
+  speed_mm_s: 1800
+  power_percent: 95
+  frequency_khz: 120
+  pulse_width_ns: 220
+  line_interval_mm: 0.025
+  passes: 256
+  angle_increment: 45
+  cleanup_every_passes: 16

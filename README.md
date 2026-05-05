@@ -1,10 +1,140 @@
-# PROJECT NOT UNDER ACTIVE MANAGEMENT #  
-This project will no longer be maintained by Intel.  
-Intel has ceased development and contributions including, but not limited to, maintenance, bug fixes, new releases, or updates, to this project.  
-Intel no longer accepts patches to this project.  
- If you have an ongoing need to use this project, are interested in independently developing it, or would like to maintain patches for the open source software community, please create your own fork of this project.  
-  
-# **ZoeDepth: Combining relative and metric depth** (Official implementation)  <!-- omit in toc -->
+# MOPA Heightmap Studio
+
+Turn a photo into a **LightBurn 3D Sliced**–ready heightmap, optimized for **JPT MOPA fiber galvo** engraving on metal.
+
+Built as a thin app on top of [ZoeDepth](#upstream-notice). The model is not modified.
+
+> **Status:** v9.0-spa — Angular + FastAPI SPA. The legacy Gradio UI has been removed. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) and [`docs/SONNET_UI_MIGRATION_BRIEF.md`](docs/SONNET_UI_MIGRATION_BRIEF.md) for the migration history.
+
+---
+
+## Quick start
+
+### 1. Install
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install -e ".[ui]"
+```
+
+### 1b. Install (NVIDIA GPU, faster)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install -e ".[ui]"
+```
+
+### 2. Launch the API server
+
+```powershell
+.\.venv\Scripts\uvicorn.exe apps.api.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+### 3. Serve the Angular SPA
+
+```powershell
+# Production build (one-time):
+cd apps\web
+npm ci
+npx ng build --configuration=production
+
+# Serve the dist folder (or use any static file server):
+npx serve dist\web
+```
+
+Open `http://localhost:3000` (or the port `serve` reports). The Wizard and Studio routes are available at `/wizard` and `/studio`.
+
+### 4. Or use the CLI
+
+```powershell
+mopa-heightmap photo.jpg --profile mopa_60w_brass --export-preview
+mopa-heightmap --make-ramp ramp.png
+```
+
+Outputs land in `outputs/` next to the input by default. Each export writes:
+
+| File | Purpose |
+|---|---|
+| `<name>_lightburn.png` | 8-bit grayscale to drop into a LightBurn **3D Sliced** layer. |
+| `<name>_master16.png` | 16-bit master for re-tuning later without re-running depth. |
+| `<name>_preview.png` | Shaded relief preview for sanity-check. |
+| `<name>_settings.json` | Sidecar — every parameter, model, profile, hash, timestamp. Reproducible re-runs. |
+
+---
+
+## Sharing material profiles
+
+Material profiles are plain YAML files. To install one a friend sent you:
+
+```powershell
+# Drop it here — picked up automatically on the next launch.
+mkdir $HOME\.mopa-heightmap\profiles
+copy custom_brass.yaml $HOME\.mopa-heightmap\profiles\
+```
+
+User-scope profiles take precedence over the shipped ones with the same name. The Studio UI lists everything from both locations in one dropdown.
+
+See [`profiles/mopa_60w_brass.yaml`](profiles/mopa_60w_brass.yaml) for the schema.
+
+---
+
+## What this app produces
+
+The app emits one or more **grayscale heightmaps** plus a sidecar JSON. You import the heightmap into LightBurn, set the layer to **3D Sliced**, and the included material profile's `lightburn_starting_point` block tells you the speed / power / frequency / pulse-width / line-interval to start with.
+
+**v1 does not** generate `.lbrn2` project files yet. That lands in Phase 4 — see [`docs/PLAN.md`](docs/PLAN.md) §22. v1.5 (Phase 3) will ship `.clb` Cut Library exports so importing into LightBurn populates the Material Library directly.
+
+---
+
+## Calibration
+
+Engrave the calibration ramp (`mopa-heightmap --make-ramp ramp.png`) on the actual material at the speed/power you plan to use. Eleven discrete gray steps will produce eleven measurable depths. Phase 3 wires those measurements back into the profile as a gray→depth LUT so future exports hit a target depth budget directly.
+
+---
+
+## Run the test suite
+
+```powershell
+pip install -e ".[dev]"
+pytest -q
+```
+
+---
+
+## Architecture in 30 seconds
+
+```
+ui/mopa_studio.py  ─┐
+apps/zoe2lightburn ─┴─► HeightmapService ──► ZoeDepth (untouched)
+                          │
+                          └─► heightmap.process → exporter → atomic PNG + sidecar JSON
+```
+
+- `zoedepth/laser/service.py` — single orchestrator. Owns the loaded model + a small depth cache. Same code path for CLI and UI.
+- `zoedepth/laser/heightmap.py` — Stage C post-processing (percentile clip → polarity → tone curve → smoothing → sharpen → dither).
+- `zoedepth/laser/exporter.py` — atomic writes (`*.tmp` → `os.replace`), three naming modes (`overwrite` | `timestamp` | `counter`), sidecar JSON.
+- `zoedepth/laser/profiles.py` — YAML profile loader + schema validator. User-scope dir + repo dir.
+- `zoedepth/laser/settings.py` — `~/.mopa-heightmap/settings.json` (output naming, preview cap, default model, device).
+
+Read [`docs/PLAN.md`](docs/PLAN.md) for the full multi-pass / multi-layer / LightBurn-native export roadmap.
+
+---
+
+## Upstream notice
+
+This project is a fork of [ZoeDepth](https://github.com/isl-org/ZoeDepth) by Intel ISL. **The original ZoeDepth project is no longer maintained by Intel.** All upstream ZoeDepth research code, training scripts, and evaluation tooling remain in this repository for reference but are not the focus of this fork.
+
+The original README content begins below.
+
+---
+
+# **ZoeDepth: Combining relative and metric depth** (Original implementation)  <!-- omit in toc -->
 [![Open In Collab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/isl-org/ZoeDepth)
 [![Open in Spaces](https://huggingface.co/datasets/huggingface/badges/raw/main/open-in-hf-spaces-sm.svg)](https://huggingface.co/spaces/shariqfarooq/ZoeDepth)
 
@@ -139,6 +269,54 @@ colored = colorize(depth)
 fpath_colored = "/path/to/output_colored.png"
 Image.fromarray(colored).save(fpath_colored)
 ```
+
+## LightBurn Heightmap Workflow
+
+This fork now includes a focused export path for turning ZoeDepth predictions into LightBurn 3D Sliced-ready metal heightmaps without modifying the underlying model implementation.
+
+The main entrypoint is [apps/zoe2lightburn.py](apps/zoe2lightburn.py), which wraps the existing `infer_pil(...)` inference API and adds:
+
+- percentile-based depth normalization
+- `black = deepest` or `white = deepest` export polarity
+- background flattening for medallions, plaques, and coins
+- smoothing plus optional detail recovery
+- 8-bit LightBurn PNG export and 16-bit master export
+- preview and calibration ramp generation
+- YAML material profiles for MOPA workflows
+
+Example:
+
+```bash
+python apps/zoe2lightburn.py input.jpg \
+  --output out/coin_heightmap.png \
+  --profile mopa_60w_brass \
+  --near 5 \
+  --far 95 \
+  --gamma 0.72 \
+  --flatten-background \
+  --black-is-deep \
+  --export-preview \
+  --export-calibration-ramp
+```
+
+This produces a LightBurn-ready grayscale output plus companion files:
+
+```text
+out/
+├─ coin_heightmap_lightburn.png
+├─ coin_heightmap_master16.png
+├─ coin_heightmap_preview.png
+├─ coin_heightmap_ramp.png
+└─ coin_heightmap_settings.json
+```
+
+To generate a standalone calibration ramp:
+
+```bash
+python apps/zoe2lightburn.py --make-ramp out/mopa_256_ramp.png
+```
+
+Profiles live in [profiles/mopa_60w_brass.yaml](profiles/mopa_60w_brass.yaml), [profiles/mopa_60w_stainless.yaml](profiles/mopa_60w_stainless.yaml), [profiles/mopa_60w_aluminum.yaml](profiles/mopa_60w_aluminum.yaml), and [profiles/mopa_60w_copper.yaml](profiles/mopa_60w_copper.yaml).
 
 ## **Environment setup**
 The project depends on :

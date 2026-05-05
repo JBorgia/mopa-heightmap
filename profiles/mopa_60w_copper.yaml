@@ -1,0 +1,32 @@
+name: mopa_60w_copper
+machine: "60W MOPA fiber"
+lightburn_mode: "3D Sliced"
+black_is_deep: true
+
+heightmap:
+  near_percentile: 5
+  far_percentile: 95
+  gamma: 0.75
+  contrast: 1.02
+  midtone_boost: 0.07
+  deep_limit: 0.04
+  surface_limit: 0.95
+  smooth: bilateral
+  smooth_diameter: 9
+  smooth_strength: 0.08
+  sharpen: 0.2
+  sharpen_sigma: 2.0
+  flatten_background: true
+  background_threshold: 0.89
+  background_value: 1.0
+
+lightburn_starting_point:
+  lens: "150mm"
+  speed_mm_s: 1900
+  power_percent: 90
+  frequency_khz: 95
+  pulse_width_ns: 190
+  line_interval_mm: 0.025
+  passes: 256
+  angle_increment: 45
+  cleanup_every_passes: 20

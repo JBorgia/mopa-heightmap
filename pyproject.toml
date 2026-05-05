@@ -1,0 +1,108 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mopa-heightmap"
+version = "0.2.0"
+description = "ZoeDepth → LightBurn 3D Sliced heightmap studio for JPT MOPA fiber galvo engravers."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "MOPA Heightmap Studio contributors" }]
+keywords = ["lightburn", "mopa", "fiber-laser", "engraving", "depth", "zoedepth", "heightmap"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Intended Audience :: Manufacturing",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+# Core deps required to run the CLI and the heightmap pipeline.
+# torch is intentionally NOT pinned to a specific CUDA build here; users pick
+# their wheel index (CPU / cu121 / etc.) per the README. We just require torch.
+dependencies = [
+    "numpy>=1.24",
+    "Pillow>=9.5",
+    "opencv-contrib-python>=4.6",
+    "PyYAML>=6.0",
+    "scipy>=1.10",
+    "timm>=0.6.12",
+    "huggingface-hub>=0.20,<1.0",
+    "tqdm>=4.64",
+    "torch>=1.13",
+    "torchvision>=0.14",
+]
+
+[project.optional-dependencies]
+ui = [
+    "gradio>=4.44,<5",
+    # Gradio 4.x has not been updated to track post-0.40 Starlette /
+    # post-0.113 FastAPI signatures; pin the working window.
+    "fastapi>=0.110,<0.113",
+    "starlette>=0.36,<0.40",
+]
+# Depth-Anything-V2 backend (Apache-2.0 weights) — opt-in: only needed when
+# the user picks ``DAv2_*`` in the model dropdown. Keeps the base install
+# slim and avoids pulling transformers when only ZoeDepth is used.
+dav2 = [
+    "transformers>=4.40,<5",
+    "safetensors>=0.4",
+]
+# Subject-mask backends — opt-in. ``rembg`` is the default (CPU ONNX, MIT);
+# ``birefnet`` and ``rmbg2`` reuse the dav2 transformers stack.
+mask = [
+    "rembg>=2.0,<3",
+    "onnxruntime>=1.16",
+]
+dev = [
+    "pytest>=7",
+    "pytest-cov>=4",
+]
+# Phase 2/3 image suite extras (rembg, real-esrgan) will land here later.
+
+[project.scripts]
+mopa-heightmap = "apps.zoe2lightburn:main"
+mopa-studio = "ui.mopa_studio:launch"
+
+[project.urls]
+Homepage = "https://github.com/your-org/mopa-heightmap"
+Documentation = "https://github.com/your-org/mopa-heightmap/blob/main/docs/PLAN.md"
+
+# ---------------------------------------------------------------- packaging
+# The repo predates a single src/ layout: we ship code from three top-level
+# folders. Tell hatchling which ones to include in the wheel.
+[tool.hatch.build.targets.wheel]
+packages = ["zoedepth", "apps", "ui"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"profiles" = "mopa_heightmap_assets/profiles"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/zoedepth",
+    "/apps",
+    "/ui",
+    "/profiles",
+    "/docs/PLAN.md",
+    "/README.md",
+    "/LICENSE",
+    "/environment.yml",
+]
+
+# ----------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

@@ -1,0 +1,72 @@
+/* You can add global styles to this file, and also import other style files */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Design tokens ────────────────────────────────────────────────────────── */
+:root {
+  --bg-base:              #f1f5f9;
+  --bg-surface:           #ffffff;
+  --bg-sunken:            #f8fafc;
+  --bg-input:             #ffffff;
+  --border-default:       #e2e8f0;
+  --border-input:         #cbd5e1;
+  --text-primary:         #0f172a;
+  --text-secondary:       #334155;
+  --text-muted:           #64748b;
+  --text-faint:           #94a3b8;
+  --badge-bg:             #e2e8f0;
+  --badge-fg:             #334155;
+  --badge-muted-bg:       #f1f5f9;
+  --badge-muted-fg:       #94a3b8;
+  --badge-success-bg:     #dcfce7;
+  --badge-success-fg:     #15803d;
+  --action-bg:            #0f172a;
+  --action-fg:            #ffffff;
+  --action-secondary-bg:  #f8fafc;
+  --action-secondary-fg:  #0f172a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-base:              #0f172a;
+    --bg-surface:           #1e293b;
+    --bg-sunken:            #0f172a;
+    --bg-input:             #1e293b;
+    --border-default:       #334155;
+    --border-input:         #475569;
+    --text-primary:         #f1f5f9;
+    --text-secondary:       #cbd5e1;
+    --text-muted:           #94a3b8;
+    --text-faint:           #64748b;
+    --badge-bg:             #334155;
+    --badge-fg:             #cbd5e1;
+    --badge-muted-bg:       #1e293b;
+    --badge-muted-fg:       #64748b;
+    --badge-success-bg:     #14532d;
+    --badge-success-fg:     #86efac;
+    --action-bg:            #f1f5f9;
+    --action-fg:            #0f172a;
+    --action-secondary-bg:  #1e293b;
+    --action-secondary-fg:  #f1f5f9;
+  }
+}
+
+/* ── Base reset ───────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

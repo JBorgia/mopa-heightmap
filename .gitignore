@@ -1,4 +1,6 @@
 *.png
+# But keep reference images — sculptok comparison, king sample, ZoeDepth teaser.
+!assets/*.png
 **.gif
 .vscode/
 *.rdb
@@ -9,6 +11,26 @@ tmp/
 .logs/
 checkpoints/
 external_jobs/
+# MOPA Heightmap Studio runtime dirs
+outputs/
+inbox/
+outbox/
+.mopa-heightmap/
+
+# Frontend build artifacts and dependencies
+apps/web/node_modules/
+apps/web/dist/
+apps/web/.angular/
+apps/web/coverage/
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/openapi.json
+
+# Claude Code per-user settings
+.claude/
+
+# Pytest captured stdout
+pytest-out.txt
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

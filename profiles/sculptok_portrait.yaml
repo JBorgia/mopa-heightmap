@@ -1,0 +1,82 @@
+name: sculptok_portrait
+machine: "60W MOPA fiber"
+lightburn_mode: "3D Sliced"
+black_is_deep: true
+
+# Portrait/sculpture preset that targets sculptok-class bas-relief output.
+# Pair with model `DAv2_Base` (Apache-2.0) — recommended for portraits — or
+# `Sapiens_Depth_1B` (CC-BY-NC, requires `allow_nc_weights`) for the SOTA
+# face-detail. `DAv2_Large` (CC-BY-NC) is also a strong choice.
+#
+# Recipe:
+#   - BiRefNet hard subject mask              → clean cutout, flat background.
+#   - DAv2_Base / Sapiens_Depth_1B            → bulk form + medium-freq surface.
+#   - Kerber gradient-domain compression      → shallow but sharp at same depth.
+#   - Photo-luminance high-pass at 0.18       → fabric/embroidery/jewelry detail.
+#   - Face-aware per-region depth weighting   → sculptor's nose/eye/cheek shaping.
+#
+# The FC-integrated-normals composite (`relief_*`) is OFF by default for
+# photographic subjects (DSINE caps at 480 px). Pair with `Sapiens_Normal_1B`
+# at 1024 px to get value out of the relief stage on portraits.
+
+heightmap:
+  near_percentile: 2
+  far_percentile: 99
+  gamma: 0.85
+  contrast: 1.08
+  midtone_boost: 0.05
+  deep_limit: 0.02
+  surface_limit: 0.98
+  smooth: bilateral
+  smooth_diameter: 5
+  smooth_strength: 0.03
+  # Sharpen pushed toward sculptok-style edge crispness. The high-frequency
+  # detail in our reference target reads like ~0.6+ unsharp-mask on top of
+  # a small sigma so the detail lifts at the bands of interest.
+  sharpen: 0.6
+  sharpen_sigma: 1.2
+  # Pre-depth super-resolution. Real-ESRGAN x4 (BSD-3) gives DAv2 a 2x-4x
+  # larger image to extract relief from — this is the dominant lever for
+  # face/beard/embroidery sharpness on sub-1024 source photos.
+  pre_upscale_enabled: true
+  pre_upscale_resolver: realesrgan-x4plus
+  pre_upscale_target_long_side: 2048
+  # Hard background flatten via real segmentation. Tighter feather (1 px)
+  # kills the silhouette halo so the engraving has knife-edge boundaries.
+  subject_mask_enabled: true
+  subject_mask_backend: rembg
+  subject_mask_feather_px: 1
+  subject_mask_threshold: 0.5
+  background_value: 1.0
+  # Kerber gradient-domain compression: amplifies micro-detail while
+  # attenuating depth jumps. Gentle defaults for portraits — too aggressive
+  # and it competes with the photo-luminance high-pass for the same band.
+  depth_unsharp_enabled: true
+  depth_unsharp_gamma: 0.85
+  depth_unsharp_blend: 0.25
+  # Photo-luminance high-pass remains the primary face-detail source; the
+  # other two stages add geometric punch (Kerber) and per-region sculpting
+  # (face_relief) on top of what the photo already gives us.
+  detail_mode: highpass
+  detail_strength: 0.22
+  detail_highpass_radius: 5
+  detail_subject_mask: true
+  # Face-aware per-region weighting — the sculptor's hand. No-op on non-faces.
+  face_relief_enabled: true
+  face_relief_strength: 1.0
+  # Off for portraits; flip on for non-photo subjects with smooth surfaces.
+  relief_enabled: false
+  relief_strength: 0.3
+  relief_normals_backend: finite_diff
+  relief_pad_fraction: 0.25
+
+lightburn_starting_point:
+  lens: "150mm"
+  speed_mm_s: 2000
+  power_percent: 92
+  frequency_khz: 100
+  pulse_width_ns: 200
+  line_interval_mm: 0.025
+  passes: 256
+  angle_increment: 45
+  cleanup_every_passes: 20
