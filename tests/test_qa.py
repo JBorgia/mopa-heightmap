@@ -7,14 +7,12 @@ import pytest
 from zoedepth.laser.qa import (
     DEFAULT_BG_FLOATER_STD,
     DEFAULT_MIN_DYNAMIC_RANGE,
-    DEFAULT_MIN_SUBJECT_COVERAGE,
     QAFinding,
     check_background_floater,
     check_dynamic_range,
     check_floating_hair,
     check_mirror_asymmetry,
     check_specular_pits,
-    check_subject_coverage,
     qa_report,
 )
 
@@ -50,27 +48,6 @@ def test_noisy_background_triggers_warning():
     assert findings
     assert findings[0].code == "bg_floater"
     assert findings[0].severity == "warning"
-
-
-# ----------------------------------------------------------- subject coverage
-
-def test_normal_coverage_passes():
-    findings = check_subject_coverage(_clean_heightmap())
-    assert findings == []
-
-
-def test_tiny_subject_warns():
-    hm = np.full((64, 64), 1.0, dtype=np.float32)
-    hm[31:33, 31:33] = 0.5  # 4 px of 4096 = 0.1 %
-    findings = check_subject_coverage(hm)
-    assert findings and findings[0].code == "subject_too_small"
-
-
-def test_full_frame_subject_info():
-    hm = np.full((64, 64), 0.5, dtype=np.float32)
-    findings = check_subject_coverage(hm)
-    assert findings and findings[0].code == "subject_fills_frame"
-    assert findings[0].severity == "info"
 
 
 # ----------------------------------------------------------- dynamic range
@@ -161,4 +138,3 @@ def test_qa_report_with_photo_runs_specular_check():
 def test_constants_have_documented_values():
     assert DEFAULT_BG_FLOATER_STD == 0.015
     assert DEFAULT_MIN_DYNAMIC_RANGE == 0.15
-    assert DEFAULT_MIN_SUBJECT_COVERAGE == 0.03

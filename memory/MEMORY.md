@@ -1,5 +1,2 @@
-- [Project: sculptok-portrait recipe](project_sculptok_portrait_recipe.md) — DAv2_Base + BiRefNet mask + photo-luminance highpass + face_relief + Kerber unsharp produces sculptok-grade portrait heightmaps.
-- [Feedback: photo highpass is the right detail source for portraits](feedback_photo_highpass_for_portraits.md) — at strength 0.10–0.22 with radius 5–7, *not* the FC-integrated-normals composite.
-- [Feedback: face-aware per-region depth weighting is the moat](feedback_face_relief_is_the_moat.md) — what a sculptor would do; no other open or commercial tool does this end-to-end.
-- [Feedback: sculptok parity ceiling on 4 GB VRAM](feedback_sculptok_parity_ceiling.md) — after Real-ESRGAN + DAv2_Large + ControlNet+SD1.5 stylize, we hit ~80-85 % of sculptok's raw detail; closing the rest needs a fine-tuned bas-relief LoRA we don't have. Don't repeat this experiment without one.
-- [Reference: research findings on meshy.ai and SOTA bas-relief landscape](reference_research_artifacts.md) — synthesis from two research agents, May 2026; pointer for "what should we add next?".
+- [Project: sculptok is the only heightmap source](project_sculptok_only_pivot.md) — depth pipeline deleted on 2026-05-05; do not reintroduce ZoeDepth/DAv2/face_relief/etc.
+- [Feedback: subject isolation lives in the LightBurn mask, not the heightmap](feedback_mask_handles_subject_isolation_in_lightburn.md) — sculptok fills the frame by design; the mask is a separate deliverable that LightBurn applies at engrave time.

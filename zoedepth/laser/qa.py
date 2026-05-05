@@ -27,15 +27,12 @@ __all__ = [
     "QAFinding",
     "qa_report",
     "check_background_floater",
-    "check_subject_coverage",
     "check_dynamic_range",
     "check_mirror_asymmetry",
     "check_specular_pits",
     "check_floating_hair",
     "DEFAULT_BG_FLOATER_STD",
     "DEFAULT_MIN_DYNAMIC_RANGE",
-    "DEFAULT_MIN_SUBJECT_COVERAGE",
-    "DEFAULT_MAX_SUBJECT_COVERAGE",
     "DEFAULT_MIRROR_ASYMMETRY_THRESHOLD",
 ]
 
@@ -50,13 +47,6 @@ DEFAULT_BG_FLOATER_STD: float = 0.015
 # barely register on the material. Below this they're carving 1-2 µm
 # differences which most metals can't resolve.
 DEFAULT_MIN_DYNAMIC_RANGE: float = 0.15
-
-# Subject coverage as a fraction of pixels — outside [3 %, 90 %] is
-# almost always a misaligned mask. The user is engraving either a coin
-# or a poster, neither of which leaves the subject as a hairline or
-# the entire frame.
-DEFAULT_MIN_SUBJECT_COVERAGE: float = 0.03
-DEFAULT_MAX_SUBJECT_COVERAGE: float = 0.90
 
 # Threshold for left-right mean-depth difference. Lighting bias on a
 # real face produces ≤ 0.05; > 0.10 strongly suggests the depth model
@@ -101,38 +91,6 @@ def check_background_floater(
             ),
         )]
     return []
-
-
-def check_subject_coverage(
-    heightmap: np.ndarray,
-    *,
-    background_value: float = 1.0,
-    min_fraction: float = DEFAULT_MIN_SUBJECT_COVERAGE,
-    max_fraction: float = DEFAULT_MAX_SUBJECT_COVERAGE,
-) -> List[QAFinding]:
-    """The subject should occupy a sensible fraction of the frame."""
-    is_subject = np.abs(heightmap - background_value) >= 0.02
-    fraction = float(np.mean(is_subject))
-    findings: List[QAFinding] = []
-    if fraction < min_fraction:
-        findings.append(QAFinding(
-            code="subject_too_small",
-            severity="warning",
-            message=(
-                f"Subject covers only {fraction*100:.1f}% of the frame; "
-                "consider cropping closer or disabling subject_mask."
-            ),
-        ))
-    elif fraction > max_fraction:
-        findings.append(QAFinding(
-            code="subject_fills_frame",
-            severity="info",
-            message=(
-                f"Subject covers {fraction*100:.1f}% of the frame; "
-                "no background plane to engrave against."
-            ),
-        ))
-    return findings
 
 
 def check_dynamic_range(
@@ -274,7 +232,6 @@ def qa_report(
     """Run every available check and return the concatenated finding list."""
     findings: List[QAFinding] = []
     findings.extend(check_background_floater(heightmap, background_value=background_value))
-    findings.extend(check_subject_coverage(heightmap, background_value=background_value))
     findings.extend(check_dynamic_range(heightmap))
     findings.extend(check_mirror_asymmetry(heightmap, background_value=background_value))
     findings.extend(check_specular_pits(heightmap, photo, background_value=background_value))
