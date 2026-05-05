@@ -12,10 +12,10 @@ from zoedepth.laser.lightburn_cards import (
 from zoedepth.laser.stages import (
     DEFAULT_PASS_ORDER,
     PASS_KIND_COLOR_PREFIX,
-    PASS_KIND_DETAIL,
     PASS_KIND_FORM,
-    PASS_KIND_POLISH,
+    PASS_KIND_PHOTO_TONAL,
     PASS_KIND_PRE_CLEAN,
+    PASS_KIND_SIGNATURE,
     EngravingPass,
     PassPlan,
     plan_passes,
@@ -32,8 +32,11 @@ def _heightmap():
 
 # ----------------------------------------------------------- pass-kind constants
 
-def test_default_pass_order_contains_form_before_polish():
-    assert DEFAULT_PASS_ORDER.index(PASS_KIND_FORM) < DEFAULT_PASS_ORDER.index(PASS_KIND_POLISH)
+def test_default_pass_order_form_runs_before_refinements():
+    """Form (the depth layer) precedes photo-tonal and signature."""
+    order = DEFAULT_PASS_ORDER
+    assert order.index(PASS_KIND_FORM) < order.index(PASS_KIND_PHOTO_TONAL)
+    assert order.index(PASS_KIND_FORM) < order.index(PASS_KIND_SIGNATURE)
 
 
 def test_color_prefix_is_documented():
@@ -42,36 +45,43 @@ def test_color_prefix_is_documented():
 
 # ----------------------------------------------------------- planner contract
 
-def test_plan_with_default_toggles_yields_each_pass_once():
+def test_plan_with_default_toggles_emits_only_form():
+    """Refinement passes are opt-in; default plan ships just the depth layer."""
     plan = plan_passes(heightmap=_heightmap(), profile=_profile())
     assert isinstance(plan, PassPlan)
     kinds = [p.kind for p in plan.passes]
-    assert PASS_KIND_FORM in kinds
-    assert PASS_KIND_POLISH in kinds
+    assert kinds == [PASS_KIND_FORM]
 
 
-def test_disabled_pass_is_dropped_from_plan():
+def test_pre_clean_opt_in_via_toggle():
     plan = plan_passes(
         heightmap=_heightmap(), profile=_profile(),
-        user_toggles={PASS_KIND_PRE_CLEAN: False},
+        user_toggles={PASS_KIND_PRE_CLEAN: True},
     )
-    assert PASS_KIND_PRE_CLEAN not in [p.kind for p in plan.passes]
+    kinds = [p.kind for p in plan.passes]
+    assert PASS_KIND_PRE_CLEAN in kinds
+    assert PASS_KIND_FORM in kinds
+
+
+def test_form_can_be_disabled_via_toggle():
+    """Edge case — the planner allows form=False if a caller really wants it."""
+    plan = plan_passes(
+        heightmap=_heightmap(), profile=_profile(),
+        user_toggles={PASS_KIND_FORM: False},
+    )
+    assert PASS_KIND_FORM not in [p.kind for p in plan.passes]
 
 
 def test_color_passes_inserted_in_profile_index_order():
     profile = _profile()
     h = _heightmap()
-    # Pick two color names from the profile and give each a fake mask.
     selected = [profile.entries[1].name, profile.entries[3].name, profile.entries[2].name]
     masks = {name: np.ones_like(h) for name in selected}
     plan = plan_passes(
         heightmap=h, profile=profile,
-        user_toggles={k: False for k in DEFAULT_PASS_ORDER},
+        user_toggles={PASS_KIND_FORM: False},
         mask_per_color=masks,
     )
-    color_names = [p.name for p in plan.by_kind(f"{PASS_KIND_COLOR_PREFIX}{profile.entries[1].name}")]
-    # All emitted color passes must be ordered by profile.index, not by
-    # the order they appeared in ``mask_per_color``.
     indices = [p.cut_setting.index for p in plan.passes]
     assert indices == sorted(indices)
 
@@ -94,7 +104,6 @@ def test_kind_color_overrides_redirect_pass_to_different_card_row():
     plan = plan_passes(
         heightmap=_heightmap(), profile=profile,
         kind_color_overrides={PASS_KIND_FORM: alternative},
-        user_toggles={k: False for k in DEFAULT_PASS_ORDER if k != PASS_KIND_FORM},
     )
     forms = plan.by_kind(PASS_KIND_FORM)
     assert len(forms) == 1
@@ -120,7 +129,7 @@ def test_planner_validates_per_kind_mask_shape():
     with pytest.raises(ValueError, match="expected"):
         plan_passes(
             heightmap=_heightmap(), profile=profile,
-            masks={PASS_KIND_DETAIL: np.zeros((4, 4), dtype=np.float32)},
+            masks={PASS_KIND_FORM: np.zeros((4, 4), dtype=np.float32)},
         )
 
 

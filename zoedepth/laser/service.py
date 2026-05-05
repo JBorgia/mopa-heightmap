@@ -87,6 +87,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "dither": False,
     "dither_levels": 256,
 
+    # Pre-clean pass — defocused full-frame light pass to burn off
+    # oxidation / oils before the depth cut starts. Opt-in.
+    "pre_clean_enabled": False,
+
     # Photo-tonal pass — low-power dithered photographic-luminance overlay
     # layered on top of the carved relief. Captures skin tone, fabric
     # pattern, and hair shading the heightmap doesn't carry.
@@ -464,16 +468,32 @@ class HeightmapService:
         request: ExportRequest,
         profile_name: str | None,
     ) -> tuple[Dict[str, Path], Path | None, Path | None, Dict[str, Any] | None]:
-        """Build per-pass masks + PNGs, plan passes, emit .lbrn2 and .clb."""
+        """Plan the pass stack and emit the .lbrn2 / .clb / per-pass PNGs.
+
+        Pass stack architecture (sculptok-only):
+            - ``form``       : sculptok depth bitmap (always emitted; the
+                               .lbrn2's 3D-Sliced layer carrying the depth
+                               budget). The layer PNG IS the master heightmap.
+            - ``pre_clean``  : opt-in, defocused full-frame oxide burn-off.
+            - ``color:CXX``  : LAB k-means clusters, one pass per color.
+            - ``photo_tonal``: opt-in, dithered photo-luma overlay; gated by
+                               subject mask if available.
+            - ``signature``  : opt-in via signature_text; corner text mark.
+
+        Refinement layers add separate physical features ON TOP of the
+        carved relief — they don't subdivide the depth budget. Each runs
+        with its own LightBurn cut setting (low power / anneal / vector)
+        so the laser doesn't carve more depth than sculptok asked for.
+        """
         from .burn_time import estimate_burn_time, format_seconds
         from .color_quantize import color_masks_for_planner, quantize_to_color_masks
         from .lbrn_writer import write_clb, write_lbrn
         from .lightburn_cards import DEFAULT_CARDS_DIR, DEFAULT_PROFILE_NAME, load_lightburn_card
-        from .pass_masks import derive_pass_masks
         from .signature import render_text_signature_mask
         from .stages import (
             PASS_KIND_FORM,
             PASS_KIND_PHOTO_TONAL,
+            PASS_KIND_PRE_CLEAN,
             PASS_KIND_SIGNATURE,
             plan_passes,
         )
@@ -486,10 +506,13 @@ class HeightmapService:
             card_path = DEFAULT_CARDS_DIR / f"{DEFAULT_PROFILE_NAME}.lbrn2"
         material = load_lightburn_card(card_path)
 
-        # 2. Derive per-pass raster masks from the heightmap.
-        kind_masks = derive_pass_masks(heightmap)
+        # 2. Build the kind -> mask map. Refinement passes are opt-in;
+        # ``form`` always uses the full-frame mask (the depth layer's
+        # PNG IS the heightmap).
+        kind_masks: Dict[str, np.ndarray] = {}
+        pass_toggles = dict(request.pass_toggles or {})
 
-        # 2a. Optional photo-tonal mask.
+        # 2a. Photo-tonal — only if explicitly enabled.
         if bool(settings.get("photo_tonal_enabled", False)):
             from .pass_masks import (
                 DEFAULT_PHOTO_TONAL_LEVELS,
@@ -506,9 +529,10 @@ class HeightmapService:
                     )
                 )
             mask_for_photo_tonal = subject_alpha
-            if mask_for_photo_tonal is None:
-                mask_for_photo_tonal = kind_masks.get(PASS_KIND_FORM)
-            elif mask_for_photo_tonal.shape != heightmap.shape:
+            if (
+                mask_for_photo_tonal is not None
+                and mask_for_photo_tonal.shape != heightmap.shape
+            ):
                 pil = Image.fromarray(
                     (np.clip(mask_for_photo_tonal, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8),
                     mode="L",
@@ -525,8 +549,9 @@ class HeightmapService:
                 dither_levels=int(settings.get("photo_tonal_levels", DEFAULT_PHOTO_TONAL_LEVELS)),
                 strength=float(settings.get("photo_tonal_strength", DEFAULT_PHOTO_TONAL_STRENGTH)),
             )
+            pass_toggles.setdefault(PASS_KIND_PHOTO_TONAL, True)
 
-        # 2b. Optional signature mask.
+        # 2b. Signature — only if text is set.
         sig_text = str(settings.get("signature_text", "") or "").strip()
         if sig_text:
             kind_masks[PASS_KIND_SIGNATURE] = render_text_signature_mask(
@@ -536,17 +561,21 @@ class HeightmapService:
                 height_fraction=float(settings.get("signature_height_fraction", 0.04)),
                 margin_fraction=float(settings.get("signature_margin_fraction", 0.03)),
             )
+            pass_toggles.setdefault(PASS_KIND_SIGNATURE, True)
+
+        # 2c. Pre-clean — opt-in via profile/setting; default off so the
+        # bundle ships with just the depth layer when nothing else asked
+        # for a pass.
+        if bool(settings.get("pre_clean_enabled", False)):
+            pass_toggles.setdefault(PASS_KIND_PRE_CLEAN, True)
 
         # 3. Optional color quantisation against the photo (stainless
         # MOPA color anneal). Each cluster becomes its own pass with the
         # material profile's matching power/speed.
         color_masks: Dict[str, np.ndarray] = {}
         if int(request.n_color_passes) >= 2:
-            subj_for_color = subject_alpha
-            if subj_for_color is None:
-                subj_for_color = kind_masks.get(PASS_KIND_FORM)
             clusters = quantize_to_color_masks(
-                image, k=int(request.n_color_passes), subject_mask=subj_for_color,
+                image, k=int(request.n_color_passes), subject_mask=subject_alpha,
             )
             color_masks = color_masks_for_planner(clusters)
 
@@ -554,12 +583,20 @@ class HeightmapService:
         plan = plan_passes(
             heightmap=heightmap,
             profile=material,
-            user_toggles=dict(request.pass_toggles or {}),
+            user_toggles=pass_toggles,
             masks=kind_masks,
             mask_per_color=color_masks,
         )
 
         # 5. Write per-pass PNGs.
+        #    - ``form`` is the depth layer: PNG = the heightmap directly,
+        #      so when LightBurn renders this in 3D-Sliced mode the
+        #      depths match sculptok's design exactly.
+        #    - ``signature`` and ``photo_tonal`` use a fixed depth-
+        #      fraction so they don't compound with the depth budget.
+        #    - ``color:*`` and ``pre_clean`` engrave through their mask
+        #      against the heightmap (subject to the LightBurn card's
+        #      cut settings, which should be anneal/low-power).
         sig_depth = float(np.clip(settings.get("signature_depth_fraction", 0.6), 0.0, 1.0))
         photo_tonal_depth = float(np.clip(
             settings.get("photo_tonal_depth_fraction", 0.4), 0.0, 1.0,
@@ -569,11 +606,17 @@ class HeightmapService:
             png_name = f"pass_{idx:02d}_{ep.kind.replace(':', '_')}.png"
             png_path = final_dir / png_name
             mask = ep.mask.astype(np.float32, copy=False)
-            if ep.kind == PASS_KIND_SIGNATURE and sig_depth > 0.0:
+            if ep.kind == PASS_KIND_FORM:
+                # The depth layer IS the heightmap.
+                layer = heightmap.astype(np.float32, copy=False)
+            elif ep.kind == PASS_KIND_SIGNATURE and sig_depth > 0.0:
                 layer = 1.0 - mask * sig_depth
             elif ep.kind == PASS_KIND_PHOTO_TONAL and photo_tonal_depth > 0.0:
                 layer = 1.0 - mask * photo_tonal_depth
             else:
+                # color:* / pre_clean / others — fire the mask against the
+                # heightmap. The LightBurn cut setting is what makes
+                # these refinement passes (low power, anneal frequency).
                 layer = 1.0 - (1.0 - heightmap) * mask
             _exporter.save_master16_png(
                 np.clip(layer, 0.0, 1.0).astype(np.float32),

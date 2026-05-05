@@ -2,11 +2,11 @@
 
 Exercises the full path the CLI / API rely on:
 
-    HeightmapService.render -> derive_pass_masks -> plan_passes ->
-    write_lbrn -> load_lightburn_card -> assert ColorEntry round-trips +
-    per-pass PNG paths exist on disk + the project XML is well-formed
-    LightBurn output (passes the same parser the importer uses for the
-    canonical color cards).
+    HeightmapService.render -> plan_passes -> write_lbrn ->
+    load_lightburn_card -> assert ColorEntry round-trips + per-pass PNG
+    paths exist on disk + the project XML is well-formed LightBurn
+    output (passes the same parser the importer uses for the canonical
+    color cards).
 
 This is the "is the export pipeline actually shipping a usable file"
 test. If it ever fails, the user can't drag the bundle into LightBurn.
@@ -184,7 +184,6 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
     """The API path produces a self-contained zip — project + PNGs together."""
     from apps.api.service_adapter import do_export_lbrn2, store_plan
     from apps.api import blob_store as api_blob_store
-    from zoedepth.laser.pass_masks import derive_pass_masks
     from zoedepth.laser.stages import plan_passes
 
     request = ExportRequest(
@@ -195,9 +194,7 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
     heightmap_id = api_blob_store.store_heightmap(hm)
 
     material = load_lightburn_card(DEFAULT_CARDS_DIR / f"{DEFAULT_PROFILE_NAME}.lbrn2")
-    plan = plan_passes(
-        heightmap=hm, profile=material, masks=derive_pass_masks(hm),
-    )
+    plan = plan_passes(heightmap=hm, profile=material)
     plan_id = store_plan(plan)
 
     zip_bytes = do_export_lbrn2(plan_id=plan_id, heightmap_id=heightmap_id)

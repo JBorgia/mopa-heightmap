@@ -1,31 +1,24 @@
-"""Pass planner: turn a finished heightmap stack into ordered engraving passes.
+"""Pass planner: turn a sculptok heightmap + optional refinement masks into ordered engraving passes.
 
-The user opts into any subset of the canonical pass kinds; the planner
-returns an ordered :class:`EngravingPass` list with verbatim ``ColorEntry``
-machine parameters lifted from the chosen :class:`MaterialProfile`.
+The product model: sculptok produces ONE depth heightmap that becomes the
+3D-Sliced bitmap layer (kind ``form``). Refinement passes add separate
+physical features on top of the carved relief — they do NOT subdivide
+the heightmap depth budget.
 
-Pass kinds (see ``IMPLEMENTATION_PLAN.md`` §4):
+Pass kinds:
 
-1. ``pre_clean`` — defocused light pass to remove oxidation / oils.
-2. ``form``     — the bulk relief itself (the heightmap PNG).
-3. ``cleanup``  — narrow contour around the form, suppresses chatter.
-4. ``detail``   — high-frequency micro-relief (Stage-B detail PNG).
-5. ``shading``  — soft photometric shading where appropriate.
-6. ``polish``   — final dithered surface pass.
-7. ``color_*``  — one pass per discovered color region (one color card row each).
-8. ``signature``— optional vector text / monogram, line-engraving style.
+1. ``pre_clean``  — defocused light pass to remove oxidation / oils. Opt-in.
+2. ``form``       — the sculptok depth bitmap (.lbrn2 3D Sliced layer).
+3. ``color:*``    — one pass per color cluster (LAB k-means on the photo).
+4. ``photo_tonal``— low-power dithered photo-luminance overlay. Opt-in.
+5. ``signature``  — small text rendered into a corner. Opt-in via text.
 
-Every pass is an opt-in: the planner accepts a ``user_toggles`` map
-(`pass_kind -> bool`) and silently drops the disabled ones.
-
-Color passes are auto-derived from a ``mask_per_color`` mapping (built by
-the upcoming color-picker stage); each entry is paired with the
-``ColorEntry`` of the same name in the active profile so the laser
-parameters travel verbatim into the exported ``.lbrn2``.
+Every pass is opt-in via ``user_toggles``; ``form`` is the only one that
+defaults to enabled because it carries the depth budget.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
@@ -40,10 +33,6 @@ __all__ = [
     "DEFAULT_PASS_ORDER",
     "PASS_KIND_FORM",
     "PASS_KIND_PRE_CLEAN",
-    "PASS_KIND_CLEANUP",
-    "PASS_KIND_DETAIL",
-    "PASS_KIND_SHADING",
-    "PASS_KIND_POLISH",
     "PASS_KIND_PHOTO_TONAL",
     "PASS_KIND_COLOR_PREFIX",
     "PASS_KIND_SIGNATURE",
@@ -54,33 +43,18 @@ __all__ = [
 
 PASS_KIND_PRE_CLEAN = "pre_clean"
 PASS_KIND_FORM = "form"
-PASS_KIND_CLEANUP = "cleanup"
-PASS_KIND_DETAIL = "detail"
-PASS_KIND_SHADING = "shading"
-PASS_KIND_POLISH = "polish"
-# Photo-derived tonal layer: low-power dithered surface treatment that
-# uses the original photo's grayscale, applied on top of the carved
-# relief. Distinct from the heightmap-band SHADING pass — this one
-# captures the photographic luminance the depth network can't see
-# (skin tone gradients, hair shadow, fabric color hints).
 PASS_KIND_PHOTO_TONAL = "photo_tonal"
 PASS_KIND_SIGNATURE = "signature"
 # Per-color pass keys are formed as ``{PASS_KIND_COLOR_PREFIX}{color_name}``
-# (e.g. ``"color:C03"``). Keeps every key unique while letting the planner
-# group them via ``startswith``.
+# (e.g. ``"color:C03"``).
 PASS_KIND_COLOR_PREFIX = "color:"
 
-# Canonical execution order. Color passes are inserted between POLISH and
-# PHOTO_TONAL at plan time (one entry per active color, in their card
-# index). Photo tonal runs LAST among the raster passes so it sits on
-# top of all carved relief; signature comes after all of them.
+# Canonical execution order. Color passes are inserted between FORM and
+# PHOTO_TONAL at plan time. Signature comes last so the corner mark sits
+# on top of everything else.
 DEFAULT_PASS_ORDER: tuple[str, ...] = (
     PASS_KIND_PRE_CLEAN,
     PASS_KIND_FORM,
-    PASS_KIND_CLEANUP,
-    PASS_KIND_DETAIL,
-    PASS_KIND_SHADING,
-    PASS_KIND_POLISH,
     # color passes go here
     PASS_KIND_PHOTO_TONAL,
     PASS_KIND_SIGNATURE,
@@ -91,16 +65,7 @@ DEFAULT_PASS_ORDER: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class EngravingPass:
-    """One pass in the planned stack.
-
-    Carries everything the LBRN writer needs:
-
-    * a stable ``id`` (used as the LightBurn layer index when writing),
-    * a ``mask`` raster (float32 ``[0, 1]``) describing where the pass fires,
-    * the verbatim ``cut_setting`` lifted from the active material profile,
-    * ``depends_on`` — pass ids that must precede this one (used by the UI to
-      enforce sensible toggle interactions, e.g. Cleanup follows Form).
-    """
+    """One pass in the planned stack."""
 
     id: str
     kind: str
@@ -185,12 +150,8 @@ def _build_kind_pass(
 # they should override via ``kind_color_overrides``.
 _KIND_DEFAULTS: Dict[str, tuple[str, str, tuple[str, ...]]] = {
     PASS_KIND_PRE_CLEAN:   ("C00", "Defocused oxidation/oil burn-off.", ()),
-    PASS_KIND_FORM:        ("C01", "Bulk relief (heightmap).", ()),
-    PASS_KIND_CLEANUP:     ("C02", "Edge contour to suppress chatter.", (PASS_KIND_FORM,)),
-    PASS_KIND_DETAIL:      ("C03", "High-frequency micro-relief.", (PASS_KIND_FORM,)),
-    PASS_KIND_SHADING:     ("C04", "Soft photometric shading.", (PASS_KIND_FORM,)),
-    PASS_KIND_POLISH:      ("C05", "Final dithered surface pass.", (PASS_KIND_FORM,)),
-    PASS_KIND_PHOTO_TONAL: ("C07", "Photo-derived tonal layer.", (PASS_KIND_POLISH,)),
+    PASS_KIND_FORM:        ("C01", "Sculptok depth — 3D-Sliced bitmap.", ()),
+    PASS_KIND_PHOTO_TONAL: ("C07", "Photo-derived tonal overlay.", (PASS_KIND_FORM,)),
     PASS_KIND_SIGNATURE:   ("C06", "Vector signature / monogram.", ()),
 }
 
@@ -209,25 +170,22 @@ def plan_passes(
     Parameters
     ----------
     heightmap
-        Float32 ``H×W`` array used to size any default masks and to validate
-        user-supplied masks.
+        Float32 ``H×W`` array used to size any default masks.
     profile
         The :class:`MaterialProfile` whose ``ColorEntry`` rows feed cut
         parameters into each pass.
     user_toggles
-        Map ``pass_kind -> bool``. Missing kinds default to ``True``. To
-        toggle a per-color pass off, use ``f"{PASS_KIND_COLOR_PREFIX}{name}"``.
+        Map ``pass_kind -> bool``. Missing kinds default to ``True`` for
+        ``form`` and ``False`` for everything else (refinement passes
+        are opt-in).
     masks
-        Optional per-kind masks (float32 in ``[0, 1]``). Keys are the
-        ``PASS_KIND_*`` constants. Missing kinds get an all-ones mask.
+        Optional per-kind masks (float32 in ``[0, 1]``). Missing kinds
+        get an all-ones mask, which is correct for the depth pass
+        (``form``) since the sculptok PNG IS the engraving target.
     mask_per_color
-        Map ``color_name -> mask`` produced by the color-picker stage. One
-        :class:`EngravingPass` of kind ``color:<name>`` is emitted per entry,
-        in the source profile's index order. Color names without a matching
-        :class:`ColorEntry` in ``profile`` are silently dropped.
+        Map ``color_name -> mask`` for the LAB k-means color clusters.
     kind_color_overrides
-        Override for the per-kind default color names (e.g. point Form at
-        ``"C09"`` instead of the default ``"C01"``).
+        Override for the per-kind default color names.
     """
     if heightmap.ndim != 2:
         raise ValueError(f"heightmap must be 2-D; got shape {heightmap.shape}")
@@ -235,17 +193,23 @@ def plan_passes(
     toggles = dict(user_toggles or {})
     overrides = dict(kind_color_overrides or {})
 
+    # Refinement passes are opt-in; only ``form`` defaults to enabled.
+    def _enabled(kind: str) -> bool:
+        if kind in toggles:
+            return bool(toggles[kind])
+        return kind == PASS_KIND_FORM
+
     ordered: List[EngravingPass] = []
     for kind in DEFAULT_PASS_ORDER:
-        if kind == PASS_KIND_POLISH:
-            # Insert color passes immediately before the polish pass.
+        if kind == PASS_KIND_PHOTO_TONAL:
+            # Insert color passes immediately before the photo-tonal pass.
             ordered.extend(_plan_color_passes(
                 heightmap=heightmap,
                 profile=profile,
                 mask_per_color=mask_per_color or {},
                 toggles=toggles,
             ))
-        if not toggles.get(kind, True):
+        if not _enabled(kind):
             continue
         color_name, note, depends_on = _KIND_DEFAULTS[kind]
         color_name = overrides.get(kind, color_name)
@@ -267,7 +231,6 @@ def _plan_color_passes(
 ) -> List[EngravingPass]:
     """Emit one EngravingPass per color, in profile.index order."""
     out: List[EngravingPass] = []
-    # Sort by the entry's LightBurn index so passes execute in card order.
     for entry in profile.entries:
         if entry.name not in mask_per_color:
             continue

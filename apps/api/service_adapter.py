@@ -378,17 +378,14 @@ def do_plan(
     profile_name: Optional[str] = None,
     settings: Optional[HeightmapSettings] = None,
 ) -> PassPlanResponse:
-    """Plan the engraving stack with real per-pass masks.
+    """Plan the engraving stack.
 
-    The heightmap supplies form / cleanup / detail / shading / polish masks
-    via :func:`zoedepth.laser.pass_masks.derive_pass_masks`. Color masks
-    are computed with LAB k-means on the source image when ``settings``
-    requests them via ``n_color_passes`` (passed through as a custom
-    field on a future schema; defaults to 0 = monochrome stack).
+    The depth layer (``form``) is always emitted; refinement passes
+    (color clusters, photo-tonal, signature, pre-clean) are opt-in. Color
+    masks are computed with LAB k-means on the source image when
+    ``settings.n_color_passes`` is set (defaults to 0 = monochrome stack).
     """
     from zoedepth.laser.color_quantize import color_masks_for_planner, quantize_to_color_masks
-    from zoedepth.laser.pass_masks import derive_pass_masks
-    from zoedepth.laser.stages import PASS_KIND_FORM
 
     hm = blob_store.load_heightmap(heightmap_id)
     if hm is None:
@@ -400,21 +397,17 @@ def do_plan(
         card_path = DEFAULT_CARDS_DIR / f"{DEFAULT_PROFILE_NAME}.lbrn2"
     material_profile = load_lightburn_card(card_path)
 
-    kind_masks = derive_pass_masks(hm)
     color_masks: Dict[str, np.ndarray] = {}
     n_color = int(getattr(settings, "n_color_passes", 0) or 0) if settings else 0
     if n_color >= 2:
         image = get_upload(image_id)
         if image is not None:
-            clusters = quantize_to_color_masks(
-                image, k=n_color, subject_mask=kind_masks.get(PASS_KIND_FORM),
-            )
+            clusters = quantize_to_color_masks(image, k=n_color)
             color_masks = color_masks_for_planner(clusters)
 
     result = _plan_passes(
         heightmap=hm,
         profile=material_profile,
-        masks=kind_masks,
         mask_per_color=color_masks,
     )
     plan_id = store_plan(result)

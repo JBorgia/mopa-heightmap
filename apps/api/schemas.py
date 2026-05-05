@@ -53,6 +53,9 @@ class HeightmapSettings(BaseModel):
     dither: bool = False
     dither_levels: int = Field(256, ge=2, le=1024)
 
+    # Pre-clean pass — defocused full-frame oxide / oil burn-off. Opt-in.
+    pre_clean_enabled: bool = False
+
     # Photo-tonal pass — low-power dithered photographic-luminance overlay.
     photo_tonal_enabled: bool = False
     photo_tonal_invert: bool = False

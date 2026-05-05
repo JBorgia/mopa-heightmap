@@ -16,8 +16,11 @@ from zoedepth.laser.lightburn_cards import (
     DEFAULT_PROFILE_NAME,
     load_lightburn_card,
 )
-from zoedepth.laser.pass_masks import derive_pass_masks
-from zoedepth.laser.stages import plan_passes
+from zoedepth.laser.stages import (
+    PASS_KIND_FORM,
+    PASS_KIND_PRE_CLEAN,
+    plan_passes,
+)
 
 
 def _ring_heightmap() -> np.ndarray:
@@ -69,7 +72,7 @@ def test_estimate_burn_time_returns_per_pass_and_total():
     profile = _profile()
     plan = plan_passes(
         heightmap=_ring_heightmap(), profile=profile,
-        masks=derive_pass_masks(_ring_heightmap()),
+        user_toggles={PASS_KIND_PRE_CLEAN: True},
     )
     est = estimate_burn_time(plan, width_mm=50.0, height_mm=50.0)
     assert isinstance(est, BurnEstimate)
@@ -86,41 +89,41 @@ def test_estimate_burn_time_returns_per_pass_and_total():
 
 def test_estimate_burn_time_pass_count_overrides_multiply_seconds():
     profile = _profile()
-    plan = plan_passes(
-        heightmap=_ring_heightmap(), profile=profile,
-        masks=derive_pass_masks(_ring_heightmap()),
-    )
+    plan = plan_passes(heightmap=_ring_heightmap(), profile=profile)
     one = estimate_burn_time(plan, width_mm=50.0, height_mm=50.0)
     many = estimate_burn_time(
         plan, width_mm=50.0, height_mm=50.0,
         pass_count_overrides={"form": 32},
     )
-    # The Form pass should have 32× the seconds of the single-pass estimate.
-    one_form = next(p.seconds for p in one.passes if p.kind == "form")
-    many_form = next(p.seconds for p in many.passes if p.kind == "form")
+    one_form = next(p.seconds for p in one.passes if p.kind == PASS_KIND_FORM)
+    many_form = next(p.seconds for p in many.passes if p.kind == PASS_KIND_FORM)
     assert many_form == pytest.approx(32 * one_form, rel=1e-6)
 
 
 def test_estimate_burn_time_active_fraction_reflects_mask_coverage():
-    """A solid-disk subject must have cleanup ring < form body in coverage."""
+    """A masked color pass over a solid-disk subject covers a smaller fraction than the full-frame form."""
     hm = _solid_disk_heightmap()
     profile = _profile()
+    target = profile.entries[2].name
+    color_mask = np.zeros_like(hm)
+    yy, xx = np.mgrid[: hm.shape[0], : hm.shape[1]].astype(np.float32)
+    cy, cx = hm.shape[0] / 2.0, hm.shape[1] / 2.0
+    r = np.sqrt((yy - cy) ** 2 + (xx - cx) ** 2)
+    color_mask[(r >= 22) & (r <= 24)] = 1.0  # thin ring
     plan = plan_passes(
-        heightmap=hm, profile=profile, masks=derive_pass_masks(hm),
+        heightmap=hm, profile=profile,
+        mask_per_color={target: color_mask},
     )
     est = estimate_burn_time(plan, width_mm=50.0, height_mm=50.0)
-    cleanup = next(p for p in est.passes if p.kind == "cleanup")
-    form = next(p for p in est.passes if p.kind == "form")
-    # Form is the whole disk; cleanup is a thin ring around its edge.
-    assert cleanup.active_fraction < form.active_fraction
+    form = next(p for p in est.passes if p.kind == PASS_KIND_FORM)
+    color = next(p for p in est.passes if p.kind.startswith("color:"))
+    # Form covers the whole frame (mask all-ones); the color ring is thin.
+    assert color.active_fraction < form.active_fraction
 
 
 def test_estimate_burn_time_rejects_non_positive_dims():
     profile = _profile()
-    plan = plan_passes(
-        heightmap=_ring_heightmap(), profile=profile,
-        masks=derive_pass_masks(_ring_heightmap()),
-    )
+    plan = plan_passes(heightmap=_ring_heightmap(), profile=profile)
     with pytest.raises(ValueError, match="positive"):
         estimate_burn_time(plan, width_mm=0.0, height_mm=50.0)
     with pytest.raises(ValueError, match="positive"):
