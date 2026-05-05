@@ -165,6 +165,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the BiRefNet subject mask + background flatten on --heightmap input. "
              "Use when your supplied heightmap already has a clean cutout.",
     )
+    parser.add_argument(
+        "--use-sculptok",
+        action="store_true",
+        help="Send the photo to the Sculptok API, wait for the heightmap, then "
+             "feed it through --heightmap mode. Requires a Sculptok API key (see "
+             "--sculptok-api-key / SCULPTOK_API_KEY / settings.json).",
+    )
+    parser.add_argument(
+        "--sculptok-api-key",
+        dest="sculptok_api_key",
+        default=None,
+        help="Sculptok API key. Overrides SCULPTOK_API_KEY env var and settings.json. "
+             "Avoid passing on the command line in production (visible in shell history).",
+    )
+    parser.add_argument(
+        "--sculptok-style",
+        dest="sculptok_style",
+        choices=["normal", "portrait", "sketch", "pro"],
+        default="pro",
+        help="Sculptok depth-map style. 'pro' (default) costs 15-30 credits but gives "
+             "the best detail; the others cost 10 credits.",
+    )
+    parser.add_argument(
+        "--sculptok-version",
+        dest="sculptok_version",
+        choices=["1.0", "1.5"],
+        default="1.5",
+        help="Sculptok pro-model version. 1.5 is the newer release (default).",
+    )
+    parser.add_argument(
+        "--sculptok-hd",
+        dest="sculptok_draw_hd",
+        choices=["2k", "4k"],
+        default="2k",
+        help="Sculptok pro-model resolution. 4k doubles the credit cost (15 → 30).",
+    )
     parser.add_argument("--tile-size", type=int, default=0, help="Optional tile size for large images; 0 disables tiled inference")
     parser.add_argument("--tile-overlap", type=int, default=128, help="Overlap in pixels for tiled inference")
     parser.add_argument("--pad-input", dest="pad_input", action="store_true", default=None, help="Enable ZoeDepth padding augmentation")
@@ -371,6 +407,46 @@ def main() -> None:
     overrides = _heightmap_overrides(args)
     settings = merge_profile_settings(profile_data, overrides)
 
+    # --use-sculptok auto-pull: configure the client up-front so we can
+    # do a single balance check before burning any credits. The actual
+    # API calls happen inside the per-input render loop below so each
+    # input gets its own freshly-generated heightmap (multi-input runs
+    # don't accidentally share one heightmap across photos).
+    sculptok_client = None
+    sculptok_params = None
+    if getattr(args, "use_sculptok", False):
+        from zoedepth.laser.settings import resolve_sculptok_api_key
+        from zoedepth.laser.sculptok_client import (
+            SculptokClient, SculptokDepthMapParams,
+        )
+
+        api_key = resolve_sculptok_api_key(
+            cli_value=args.sculptok_api_key, settings=app_settings,
+        )
+        if not api_key:
+            raise SystemExit(
+                "Sculptok API key not configured. Set SCULPTOK_API_KEY env var, "
+                "pass --sculptok-api-key, or add credentials.sculptok_api_key to "
+                "~/.mopa-heightmap/settings.json."
+            )
+        sculptok_client = SculptokClient(api_key)
+        sculptok_params = SculptokDepthMapParams(
+            style=args.sculptok_style,
+            version=args.sculptok_version,
+            draw_hd=args.sculptok_draw_hd,
+        )
+        balance = sculptok_client.get_credits()
+        cost = sculptok_params.expected_cost()
+        print(
+            f"Sculptok credits: {balance} (each {sculptok_params.style}/"
+            f"{sculptok_params.draw_hd} call costs {cost})"
+        )
+        if balance < cost * len(inputs):
+            raise SystemExit(
+                f"Need {cost * len(inputs)} credits for {len(inputs)} input(s); "
+                f"only {balance} available. Top up at https://www.sculptok.com/pricing."
+            )
+
     inference_cfg = InferenceConfig(
         model_name=args.model or app_settings.inference.default_model,
         device=args.device,
@@ -412,9 +488,38 @@ def main() -> None:
 
         if multi:
             print(f"[{index + 1}/{len(inputs)}] {input_path}")
+
+        # Per-input Sculptok call: produces a heightmap PNG sibling of
+        # the photo and points this run's external_heightmap_path at it.
+        per_input_settings = dict(settings)
+        if sculptok_client is not None and sculptok_params is not None:
+            from zoedepth.laser.sculptok_client import SculptokInsufficientCreditsError
+
+            print(
+                f"  Sculptok: generating depth-map "
+                f"({sculptok_params.style}/{sculptok_params.draw_hd}, "
+                f"{sculptok_params.expected_cost()} credits) ..."
+            )
+            try:
+                heightmap_path = sculptok_client.generate_heightmap(
+                    input_path,
+                    params=sculptok_params,
+                    out_path=input_path.with_name(input_path.stem + "_sculptok.png"),
+                    check_credits=False,    # checked once before the loop
+                    on_status=lambda s: print(
+                        f"    ... task {s.prompt_id[:8]} status={s.status} "
+                        f"step={s.current_step} queue={s.queue_position}",
+                        flush=True,
+                    ),
+                )
+            except SculptokInsufficientCreditsError as exc:
+                raise SystemExit(f"Sculptok: {exc}") from exc
+            print(f"  Sculptok: {heightmap_path}")
+            per_input_settings["external_heightmap_path"] = str(heightmap_path)
+
         bundle = service.export(
             Image.open(input_path),
-            settings,
+            per_input_settings,
             inference_cfg,
             request,
             profile_name=args.profile,

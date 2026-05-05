@@ -56,12 +56,29 @@ class UiSettings:
 
 
 @dataclass
+class CredentialsSettings:
+    """API keys for third-party services (Sculptok, Meshy, …).
+
+    Stored under ``~/.mopa-heightmap/settings.json`` so the operator
+    types each key once. Empty string means "not configured" and the
+    relevant feature stays unavailable.
+
+    Precedence at runtime: explicit CLI flag > environment variable >
+    this file. Resolved via :func:`resolve_sculptok_api_key` etc.
+    """
+
+    sculptok_api_key: str = ""
+    meshy_api_key: str = ""
+
+
+@dataclass
 class AppSettings:
     version: int = SETTINGS_VERSION
     output: OutputSettings = field(default_factory=OutputSettings)
     preview: PreviewSettings = field(default_factory=PreviewSettings)
     inference: InferenceSettings = field(default_factory=InferenceSettings)
     ui: UiSettings = field(default_factory=UiSettings)
+    credentials: CredentialsSettings = field(default_factory=CredentialsSettings)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -135,6 +152,47 @@ def resolve_precision(setting: str | None, device: str) -> str:
     if pref not in ("fp32", "fp16", "bf16"):
         return "fp32"
     return pref
+
+
+def resolve_sculptok_api_key(
+    cli_value: str | None = None,
+    settings: AppSettings | None = None,
+    *,
+    env_var: str = "SCULPTOK_API_KEY",
+) -> str | None:
+    """Look up the Sculptok API key by precedence: CLI > env > settings.json.
+
+    Returns ``None`` when no key is configured anywhere — callers should
+    surface a clear "set SCULPTOK_API_KEY" error rather than constructing
+    a SculptokClient with an empty string.
+    """
+    if cli_value:
+        return cli_value.strip()
+    env_value = os.environ.get(env_var, "").strip()
+    if env_value:
+        return env_value
+    if settings is None:
+        settings = load_settings()
+    file_value = (settings.credentials.sculptok_api_key or "").strip()
+    return file_value or None
+
+
+def resolve_meshy_api_key(
+    cli_value: str | None = None,
+    settings: AppSettings | None = None,
+    *,
+    env_var: str = "MESHY_API_KEY",
+) -> str | None:
+    """Same precedence order as :func:`resolve_sculptok_api_key`, for Meshy."""
+    if cli_value:
+        return cli_value.strip()
+    env_value = os.environ.get(env_var, "").strip()
+    if env_value:
+        return env_value
+    if settings is None:
+        settings = load_settings()
+    file_value = (settings.credentials.meshy_api_key or "").strip()
+    return file_value or None
 
 
 def cuda_device_summary() -> str | None:
