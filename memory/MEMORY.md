@@ -1,4 +1,5 @@
 - [Reference: Node.js / pnpm / Angular CLI toolchain](reference_node_toolchain.md) — locations + PATH preamble for the user's Windows box; apps/web is on pnpm 10.33.3.
+- [Project: open backlog (deferred features)](project_open_backlog.md) — material profile persistence, auto-orient/auto-crop, procedural background generators; what's already done so the next session doesn't re-do it.
 - [Project: sculptok is the only heightmap source](project_sculptok_only_pivot.md) — depth pipeline deleted on 2026-05-05; do not reintroduce ZoeDepth/DAv2/face_relief/etc.
 - [Project: pass architecture — sculptok is the depth cut, refinement layers add features](project_pass_architecture.md) — one 3DSliced bitmap (sculptok), plus separate refinement layers (hair, eyes, color, shading, signature, cuts). Never slice the heightmap into bands.
 - [Feedback: subject isolation lives in the LightBurn mask, not the heightmap](feedback_mask_handles_subject_isolation_in_lightburn.md) — sculptok fills the frame by design; the mask is a separate deliverable that LightBurn applies at engrave time.
