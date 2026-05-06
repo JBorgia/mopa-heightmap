@@ -149,31 +149,31 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   <div class="field field-toggle">
                     <label for="prep-wb">White balance</label>
                     <input id="prep-wb" type="checkbox"
-                      [checked]="pipeline().settings.input_white_balance ?? false"
+                      [checked]="pipeline().settings.input_white_balance"
                       (change)="onSettingToggle('input_white_balance', $event)" />
                   </div>
                   <div class="field field-toggle">
                     <label for="prep-clahe">CLAHE contrast</label>
                     <input id="prep-clahe" type="checkbox"
-                      [checked]="pipeline().settings.input_clahe ?? false"
+                      [checked]="pipeline().settings.input_clahe"
                       (change)="onSettingToggle('input_clahe', $event)" />
                   </div>
                   <div class="field field-toggle">
                     <label for="prep-denoise">Denoise</label>
                     <input id="prep-denoise" type="checkbox"
-                      [checked]="pipeline().settings.input_denoise ?? false"
+                      [checked]="pipeline().settings.input_denoise"
                       (change)="onSettingToggle('input_denoise', $event)" />
                   </div>
                   <div class="field field-toggle">
                     <label for="prep-specular">Remove specular highlights</label>
                     <input id="prep-specular" type="checkbox"
-                      [checked]="pipeline().settings.input_remove_specular ?? false"
+                      [checked]="pipeline().settings.input_remove_specular"
                       (change)="onSettingToggle('input_remove_specular', $event)" />
                   </div>
                   <div class="field">
                     <label for="prep-max-dim">Max input dimension (0 = unlimited)</label>
                     <input id="prep-max-dim" type="number" min="0" max="8192" step="64"
-                      [value]="pipeline().settings.input_max_dim ?? 0"
+                      [value]="pipeline().settings.input_max_dim"
                       (change)="onSettingNumber('input_max_dim', $event)" />
                   </div>
                 </div>
@@ -266,7 +266,7 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   <div class="field">
                     <label for="hm-polarity">Source polarity</label>
                     <select id="hm-polarity"
-                      [value]="pipeline().settings.external_heightmap_polarity ?? 'bright_raised'"
+                      [value]="pipeline().settings.external_heightmap_polarity"
                       (change)="onSettingValue('external_heightmap_polarity', $event)">
                       @for (opt of heightmapPolarities; track opt.value) {
                         <option [value]="opt.value">{{ opt.label }}</option>
@@ -276,19 +276,19 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   <div class="field field-toggle">
                     <label for="hm-invert">Invert (signet ring / recessed)</label>
                     <input id="hm-invert" type="checkbox"
-                      [checked]="pipeline().settings.polarity_invert ?? false"
+                      [checked]="pipeline().settings.polarity_invert"
                       (change)="onSettingToggle('polarity_invert', $event)" />
                   </div>
                   <div class="field field-toggle">
                     <label for="hm-bid">Black is deep</label>
                     <input id="hm-bid" type="checkbox"
-                      [checked]="pipeline().settings.black_is_deep ?? true"
+                      [checked]="pipeline().settings.black_is_deep"
                       (change)="onSettingToggle('black_is_deep', $event)" />
                   </div>
                   <div class="field">
                     <label>Background value <span class="value-badge">{{ pipeline().settings.background_value | number:'1.2-2' }}</span></label>
                     <input type="range" min="0" max="1" step="0.01"
-                      [value]="pipeline().settings.background_value ?? 1"
+                      [value]="pipeline().settings.background_value"
                       (change)="onSettingNumber('background_value', $event)" />
                   </div>
                 </div>
@@ -308,34 +308,34 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   <div class="field field-toggle">
                     <label for="ref-mask">Subject mask deliverable</label>
                     <input id="ref-mask" type="checkbox"
-                      [checked]="pipeline().settings.subject_mask_enabled ?? false"
+                      [checked]="pipeline().settings.subject_mask_enabled"
                       (change)="onSettingToggle('subject_mask_enabled', $event)" />
                   </div>
 
                   <div class="field field-toggle">
                     <label for="ref-preclean">Pre-clean pass</label>
                     <input id="ref-preclean" type="checkbox"
-                      [checked]="pipeline().settings.pre_clean_enabled ?? false"
+                      [checked]="pipeline().settings.pre_clean_enabled"
                       (change)="onSettingToggle('pre_clean_enabled', $event)" />
                   </div>
 
                   <div class="field field-toggle">
                     <label for="ref-tonal">Photo-tonal overlay</label>
                     <input id="ref-tonal" type="checkbox"
-                      [checked]="pipeline().settings.photo_tonal_enabled ?? false"
+                      [checked]="pipeline().settings.photo_tonal_enabled"
                       (change)="onSettingToggle('photo_tonal_enabled', $event)" />
                   </div>
                   @if (pipeline().settings.photo_tonal_enabled) {
                     <div class="field field-indented">
                       <label>Strength <span class="value-badge">{{ pipeline().settings.photo_tonal_strength | number:'1.2-2' }}</span></label>
                       <input type="range" min="0" max="1" step="0.01"
-                        [value]="pipeline().settings.photo_tonal_strength ?? 0.7"
+                        [value]="pipeline().settings.photo_tonal_strength"
                         (change)="onSettingNumber('photo_tonal_strength', $event)" />
                     </div>
                     <div class="field field-indented field-toggle">
                       <label for="ref-tonal-invert">Invert (light = engrave)</label>
                       <input id="ref-tonal-invert" type="checkbox"
-                        [checked]="pipeline().settings.photo_tonal_invert ?? false"
+                        [checked]="pipeline().settings.photo_tonal_invert"
                         (change)="onSettingToggle('photo_tonal_invert', $event)" />
                     </div>
                   }
@@ -344,14 +344,14 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     <label for="ref-sig-text">Signature text</label>
                     <input id="ref-sig-text" type="text" maxlength="64"
                       placeholder="e.g. JB 2026"
-                      [value]="pipeline().settings.signature_text ?? ''"
+                      [value]="pipeline().settings.signature_text"
                       (change)="onSettingValue('signature_text', $event)" />
                   </div>
                   @if (pipeline().settings.signature_text) {
                     <div class="field field-indented">
                       <label for="ref-sig-corner">Corner</label>
                       <select id="ref-sig-corner"
-                        [value]="pipeline().settings.signature_corner ?? 'br'"
+                        [value]="pipeline().settings.signature_corner"
                         (change)="onSettingValue('signature_corner', $event)">
                         @for (opt of signatureCorners; track opt.value) {
                           <option [value]="opt.value">{{ opt.label }}</option>
@@ -363,7 +363,7 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   <div class="field field-toggle">
                     <label for="ref-dither">Output dither (8-bit collapse)</label>
                     <input id="ref-dither" type="checkbox"
-                      [checked]="pipeline().settings.dither ?? false"
+                      [checked]="pipeline().settings.dither"
                       (change)="onSettingToggle('dither', $event)" />
                   </div>
                 </div>
