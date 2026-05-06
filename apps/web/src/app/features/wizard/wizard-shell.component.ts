@@ -6,6 +6,7 @@ import { Card } from 'primeng/card';
 import { Splitter } from 'primeng/splitter';
 
 import { ApiClientService } from '../../core/api/api-client.service';
+import type { HeightmapSettings } from '../../core/api/api-types';
 import { ExportService } from '../../core/state/export.service';
 import { MaskService } from '../../core/state/mask.service';
 import { PlanService } from '../../core/state/plan.service';
@@ -17,7 +18,7 @@ import { MaskBackend, ToastMessage } from '../../core/state/studio-state';
 export const WIZARD_PAGE_LABELS = [
   '1. Upload',
   '2. Subject',
-  '3. Form & Detail',
+  '3. Prep & Refine',
   '4. Material & Passes',
   '5. Review & Export',
 ] as const;
@@ -25,7 +26,7 @@ export const WIZARD_PAGE_LABELS = [
 export const WIZARD_STAGE_SUMMARIES = [
   'Upload a photo of the subject you want to engrave.',
   'Select a mask method and isolate the subject from the background.',
-  'Adjust how much photo detail appears in the depth map and set the relief depth.',
+  'Clean the photo before sculptok sees it, and pick refinement layers (subject mask, photo-tonal, signature) to ship in the bundle.',
   'Choose a material profile and preview the engraving pass plan.',
   'Review your settings and export the finished heightmap or pass file.',
 ] as const;
@@ -188,16 +189,69 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                 </div>
               }
 
-              <!-- Page 2: Form & Detail -->
+              <!-- Page 2: Prep & Refine -->
               @if (ui().wizardPage === 2) {
                 <h2>{{ wizardPageLabels[2] }}</h2>
                 <p>{{ stageSummaries[2] }}</p>
                 <div class="wizard-controls">
-                  <p class="muted">
-                    Sculptok produces the depth heightmap. Pre-sculptok input prep
-                    (CLAHE / denoise / specular removal) and per-pass refinement
-                    controls land here in a follow-up.
-                  </p>
+
+                  <fieldset class="control-section">
+                    <legend>Pre-sculptok prep</legend>
+                    <label class="control-toggle">
+                      <input type="checkbox"
+                        [checked]="pipeline().settings.input_clahe"
+                        (change)="onSettingToggle('input_clahe', $event)" />
+                      CLAHE contrast
+                    </label>
+                    <label class="control-toggle">
+                      <input type="checkbox"
+                        [checked]="pipeline().settings.input_denoise"
+                        (change)="onSettingToggle('input_denoise', $event)" />
+                      Denoise
+                    </label>
+                    <label class="control-toggle">
+                      <input type="checkbox"
+                        [checked]="pipeline().settings.input_remove_specular"
+                        (change)="onSettingToggle('input_remove_specular', $event)" />
+                      Remove specular highlights
+                    </label>
+                  </fieldset>
+
+                  <fieldset class="control-section">
+                    <legend>Refinement passes</legend>
+                    <label class="control-toggle">
+                      <input type="checkbox"
+                        [checked]="pipeline().settings.subject_mask_enabled"
+                        (change)="onSettingToggle('subject_mask_enabled', $event)" />
+                      Subject mask deliverable
+                    </label>
+                    <label class="control-toggle">
+                      <input type="checkbox"
+                        [checked]="pipeline().settings.pre_clean_enabled"
+                        (change)="onSettingToggle('pre_clean_enabled', $event)" />
+                      Pre-clean pass
+                    </label>
+                    <label class="control-toggle">
+                      <input type="checkbox"
+                        [checked]="pipeline().settings.photo_tonal_enabled"
+                        (change)="onSettingToggle('photo_tonal_enabled', $event)" />
+                      Photo-tonal overlay
+                    </label>
+                    <label class="control-toggle">
+                      <input type="checkbox"
+                        [checked]="pipeline().settings.polarity_invert"
+                        (change)="onSettingToggle('polarity_invert', $event)" />
+                      Polarity invert (signet ring)
+                    </label>
+                    <div class="control-group">
+                      <label for="wiz-sig-text">Signature text</label>
+                      <input id="wiz-sig-text" type="text" maxlength="64"
+                        placeholder="e.g. JB 2026"
+                        [value]="pipeline().settings.signature_text"
+                        (change)="onSettingValue('signature_text', $event)" />
+                    </div>
+                  </fieldset>
+
                   <div class="control-actions">
                     <button type="button" [disabled]="!session().imageId" (click)="renderPreview()">
                       Render preview
@@ -772,6 +826,18 @@ export class WizardShellComponent {
 
   protected createMask(): void {
     this.maskService.createMask();
+  }
+
+  /** Generic toggle handler for boolean ``HeightmapSettings`` keys. */
+  protected onSettingToggle<K extends keyof HeightmapSettings>(key: K, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.renderService.patchSettings(key, checked as HeightmapSettings[K]);
+  }
+
+  /** Generic string-or-enum handler (selects, text inputs). */
+  protected onSettingValue<K extends keyof HeightmapSettings>(key: K, event: Event): void {
+    const value = (event.target as HTMLInputElement | HTMLSelectElement).value;
+    this.renderService.patchSettings(key, value as HeightmapSettings[K]);
   }
 
   /**
