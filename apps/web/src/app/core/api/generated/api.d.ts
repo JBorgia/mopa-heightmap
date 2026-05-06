@@ -49,7 +49,12 @@ export interface paths {
         put?: never;
         /**
          * Export Lbrn2
-         * @description Emit a LightBurn .lbrn2 project from a stored pass plan.
+         * @description Emit a LightBurn .lbrn2 bundle (project + per-pass PNGs) as a zip.
+         *
+         *     The .lbrn2 file alone references the per-pass PNGs by relative path;
+         *     distributing them as a single zip keeps the bundle self-contained so
+         *     LightBurn finds every bitmap when the user unpacks and opens the
+         *     project.
          */
         post: operations["export_lbrn2_export_lbrn2_post"];
         delete?: never;
@@ -304,87 +309,6 @@ export interface components {
         /** HeightmapSettings */
         HeightmapSettings: {
             /**
-             * Near Percentile
-             * @default 5
-             */
-            near_percentile: number;
-            /**
-             * Far Percentile
-             * @default 95
-             */
-            far_percentile: number;
-            /**
-             * Gamma
-             * @default 0.72
-             */
-            gamma: number;
-            /**
-             * Contrast
-             * @default 1
-             */
-            contrast: number;
-            /**
-             * Midtone Boost
-             * @default 0
-             */
-            midtone_boost: number;
-            /**
-             * Deep Limit
-             * @default 0.04
-             */
-            deep_limit: number;
-            /**
-             * Surface Limit
-             * @default 0.96
-             */
-            surface_limit: number;
-            /**
-             * Black Is Deep
-             * @default true
-             */
-            black_is_deep: boolean;
-            /**
-             * Flatten Background
-             * @default false
-             */
-            flatten_background: boolean;
-            /**
-             * Background Threshold
-             * @default 0.88
-             */
-            background_threshold: number;
-            /**
-             * Background Value
-             * @default 1
-             */
-            background_value: number;
-            /**
-             * Smooth
-             * @default bilateral
-             * @enum {string}
-             */
-            smooth: "none" | "off" | "bilateral" | "gaussian";
-            /**
-             * Smooth Diameter
-             * @default 9
-             */
-            smooth_diameter: number;
-            /**
-             * Smooth Strength
-             * @default 0.08
-             */
-            smooth_strength: number;
-            /**
-             * Sharpen
-             * @default 0.2
-             */
-            sharpen: number;
-            /**
-             * Sharpen Sigma
-             * @default 2
-             */
-            sharpen_sigma: number;
-            /**
              * Input White Balance
              * @default false
              */
@@ -430,25 +354,51 @@ export interface components {
              */
             input_max_dim: number;
             /**
-             * Edge Refine
+             * External Heightmap Path
+             * @default
+             */
+            external_heightmap_path: string;
+            /**
+             * External Heightmap Polarity
+             * @default bright_raised
+             * @enum {string}
+             */
+            external_heightmap_polarity: "bright_raised" | "dark_raised" | "auto";
+            /**
+             * Polarity Invert
              * @default false
              */
-            edge_refine: boolean;
+            polarity_invert: boolean;
             /**
-             * Edge Refine Diameter
-             * @default 9
+             * Subject Mask Enabled
+             * @default false
              */
-            edge_refine_diameter: number;
+            subject_mask_enabled: boolean;
             /**
-             * Edge Refine Sigma Color
-             * @default 0.08
+             * Subject Mask Backend
+             * @default rembg
              */
-            edge_refine_sigma_color: number;
+            subject_mask_backend: string;
             /**
-             * Edge Refine Sigma Space
-             * @default 6
+             * Subject Mask Feather Px
+             * @default 3
              */
-            edge_refine_sigma_space: number;
+            subject_mask_feather_px: number;
+            /**
+             * Subject Mask Threshold
+             * @default 0.5
+             */
+            subject_mask_threshold: number;
+            /**
+             * Black Is Deep
+             * @default true
+             */
+            black_is_deep: boolean;
+            /**
+             * Background Value
+             * @default 1
+             */
+            background_value: number;
             /**
              * Dither
              * @default false
@@ -460,78 +410,66 @@ export interface components {
              */
             dither_levels: number;
             /**
-             * Target Depth Um
-             * @default 0
-             */
-            target_depth_um: number;
-            /**
-             * Posterize Passes
-             * @default 0
-             */
-            posterize_passes: number;
-            /**
-             * Detail Mode
-             * @default off
-             * @enum {string}
-             */
-            detail_mode: "off" | "luminance" | "highpass" | "both";
-            /**
-             * Detail Strength
-             * @default 0.35
-             */
-            detail_strength: number;
-            /**
-             * Detail Highpass Radius
-             * @default 9
-             */
-            detail_highpass_radius: number;
-            /**
-             * Detail Subject Mask
-             * @default true
-             */
-            detail_subject_mask: boolean;
-            /**
-             * Detail Invert
+             * Pre Clean Enabled
              * @default false
              */
-            detail_invert: boolean;
-        };
-        /** InferenceConfig */
-        InferenceConfig: {
+            pre_clean_enabled: boolean;
             /**
-             * Model Name
-             * @default ZoeD_NK
+             * Photo Tonal Enabled
+             * @default false
              */
-            model_name: string;
-            /** Device */
-            device?: string | null;
+            photo_tonal_enabled: boolean;
             /**
-             * Pad Input
+             * Photo Tonal Invert
+             * @default false
+             */
+            photo_tonal_invert: boolean;
+            /**
+             * Photo Tonal Dither
              * @default true
              */
-            pad_input: boolean;
+            photo_tonal_dither: boolean;
             /**
-             * With Flip Aug
-             * @default true
+             * Photo Tonal Levels
+             * @default 32
              */
-            with_flip_aug: boolean;
+            photo_tonal_levels: number;
             /**
-             * Tile Size
-             * @default 0
+             * Photo Tonal Strength
+             * @default 0.7
              */
-            tile_size: number;
+            photo_tonal_strength: number;
             /**
-             * Tile Overlap
-             * @default 128
+             * Photo Tonal Depth Fraction
+             * @default 0.4
              */
-            tile_overlap: number;
-            /** Precision */
-            precision?: string | null;
+            photo_tonal_depth_fraction: number;
             /**
-             * Inference Resolution
-             * @default 0
+             * Signature Text
+             * @default
              */
-            inference_resolution: number;
+            signature_text: string;
+            /**
+             * Signature Corner
+             * @default br
+             * @enum {string}
+             */
+            signature_corner: "tl" | "tr" | "bl" | "br";
+            /**
+             * Signature Height Fraction
+             * @default 0.04
+             */
+            signature_height_fraction: number;
+            /**
+             * Signature Margin Fraction
+             * @default 0.03
+             */
+            signature_margin_fraction: number;
+            /**
+             * Signature Depth Fraction
+             * @default 0.6
+             */
+            signature_depth_fraction: number;
         };
         /** MaskRequest */
         MaskRequest: {
@@ -606,7 +544,6 @@ export interface components {
             /** Image Id */
             image_id: string;
             settings?: components["schemas"]["HeightmapSettings"];
-            inference?: components["schemas"]["InferenceConfig"];
             /** Profile Name */
             profile_name?: string | null;
         };

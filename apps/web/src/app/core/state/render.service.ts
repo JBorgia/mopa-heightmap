@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 
 import { ApiClientService } from '../api/api-client.service';
-import { HeightmapSettings, InferenceConfig } from '../api/api-types';
+import { HeightmapSettings } from '../api/api-types';
 import { BlobCacheService } from './blob-cache.service';
 import { SessionTreeService } from './session-tree.service';
 
@@ -11,74 +11,25 @@ export class RenderService {
   private readonly blobCache = inject(BlobCacheService);
   private readonly sessionTree = inject(SessionTreeService);
 
-  setDetailBalance(detailBalance: number): void {
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        render: {
-          ...current.pipeline.render,
-          detailBalance,
-        },
-      },
-    }));
-  }
-
-  setMultires(multires: boolean): void {
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        render: {
-          ...current.pipeline.render,
-          multires,
-        },
-      },
-    }));
-  }
-
-  setRelief(relief: number): void {
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        render: {
-          ...current.pipeline.render,
-          relief,
-        },
-      },
-    }));
-  }
-
   render(): void {
     const state = this.sessionTree.state();
     if (!state.session.imageId) {
       return;
     }
 
-    const { render, advanced } = state.pipeline;
+    const { render } = state.pipeline;
 
+    // Sculptok-only backend: depth comes from settings.external_heightmap_path
+    // (set by upload / sculptok auto-pull). Render forwards only fields the
+    // current backend accepts; everything else uses Pydantic defaults.
     this.apiClient
       .render({
         image_id: state.session.imageId,
         profile_name: render.profileName ?? undefined,
-        // Pydantic supplies defaults for every omitted field on the server.
         settings: {
-          detail_mode: render.detailBalance > 0 ? 'luminance' : 'off',
-          detail_strength: render.detailBalance,
-          edge_refine: true,
-          edge_refine_diameter: 9,
-          edge_refine_sigma_color: 0.1,
-          edge_refine_sigma_space: 8.0,
-          sharpen: advanced.sharpen,
-          smooth_strength: advanced.bilateralStrength,
-          contrast: 0.5 + render.relief,
           input_clahe: true,
           input_clahe_clip: 3.0,
-        } as unknown as HeightmapSettings,
-        inference: {
-          with_flip_aug: render.multires,
-        } as unknown as InferenceConfig,
+        } as Partial<HeightmapSettings> as HeightmapSettings,
       })
       .subscribe({
         next: (response) => {

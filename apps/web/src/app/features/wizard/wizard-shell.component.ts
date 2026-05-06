@@ -193,44 +193,11 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                 <h2>{{ wizardPageLabels[2] }}</h2>
                 <p>{{ stageSummaries[2] }}</p>
                 <div class="wizard-controls">
-                  <div class="control-group">
-                    <label for="wiz-detail">
-                      Detail balance: {{ pipeline().render.detailBalance | number: '1.2-2' }}
-                    </label>
-                    <input
-                      id="wiz-detail"
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      [value]="pipeline().render.detailBalance"
-                      (change)="onDetailBalanceChange($event)"
-                    />
-                  </div>
-                  <div class="control-group">
-                    <label for="wiz-relief">
-                      Relief depth: {{ pipeline().render.relief | number: '1.2-2' }}
-                    </label>
-                    <input
-                      id="wiz-relief"
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      [value]="pipeline().render.relief"
-                      (change)="onReliefChange($event)"
-                    />
-                  </div>
-                  <div class="control-group">
-                    <label>
-                      <input
-                        type="checkbox"
-                        [checked]="pipeline().render.multires"
-                        (change)="onMultiresChange($event)"
-                      />
-                      Multi-resolution render
-                    </label>
-                  </div>
+                  <p class="muted">
+                    Sculptok produces the depth heightmap. Pre-sculptok input prep
+                    (CLAHE / denoise / specular removal) and per-pass refinement
+                    controls land here in a follow-up.
+                  </p>
                   <div class="control-actions">
                     <button type="button" [disabled]="!session().imageId" (click)="renderPreview()">
                       Render preview
@@ -801,21 +768,6 @@ export class WizardShellComponent {
   protected onEdgeSoftnessChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     this.maskService.setEdgeSoftness(parseFloat(input.value));
-  }
-
-  protected onDetailBalanceChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    this.renderService.setDetailBalance(parseFloat(input.value));
-  }
-
-  protected onReliefChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    this.renderService.setRelief(parseFloat(input.value));
-  }
-
-  protected onMultiresChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    this.renderService.setMultires(input.checked);
   }
 
   protected createMask(): void {

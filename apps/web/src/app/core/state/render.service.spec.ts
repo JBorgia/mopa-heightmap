@@ -24,6 +24,7 @@ function makeTreeMock() {
     state: vi.fn(() => state),
     patchState: vi.fn(),
     pushHistory: vi.fn(),
+    addToast: vi.fn(),
     _state: state,
   };
 }
@@ -50,38 +51,6 @@ describe('RenderService', () => {
     service = TestBed.inject(RenderService);
   });
 
-  // --- setDetailBalance -------------------------------------------------------
-
-  it('setDetailBalance patches pipeline.render.detailBalance', () => {
-    service.setDetailBalance(0.75);
-    expect(treeMock.patchState).toHaveBeenCalledOnce();
-    const updater = treeMock.patchState.mock.calls[0][0];
-    const result = updater(treeMock._state);
-    expect(result.pipeline.render.detailBalance).toBe(0.75);
-  });
-
-  // --- setMultires ------------------------------------------------------------
-
-  it('setMultires patches pipeline.render.multires', () => {
-    service.setMultires(true);
-    expect(treeMock.patchState).toHaveBeenCalledOnce();
-    const updater = treeMock.patchState.mock.calls[0][0];
-    const result = updater(treeMock._state);
-    expect(result.pipeline.render.multires).toBe(true);
-  });
-
-  // --- setRelief --------------------------------------------------------------
-
-  it('setRelief patches pipeline.render.relief', () => {
-    service.setRelief(2.5);
-    expect(treeMock.patchState).toHaveBeenCalledOnce();
-    const updater = treeMock.patchState.mock.calls[0][0];
-    const result = updater(treeMock._state);
-    expect(result.pipeline.render.relief).toBe(2.5);
-  });
-
-  // --- render -----------------------------------------------------------------
-
   it('render does nothing if imageId is null', () => {
     treeMock.state.mockReturnValue({
       ...treeMock._state,
@@ -91,12 +60,18 @@ describe('RenderService', () => {
     expect(apiMock.render).not.toHaveBeenCalled();
   });
 
-  it('render calls apiClient.render with image_id and profile_name', () => {
+  it('render forwards image_id, profile_name, and current settings to the API', () => {
     service.render();
-    expect(apiMock.render).toHaveBeenCalledWith({
-      image_id: 'img-001',
-      profile_name: DEFAULT_STUDIO_STATE.pipeline.render.profileName,
+    expect(apiMock.render).toHaveBeenCalledOnce();
+    const payload = apiMock.render.mock.calls[0][0];
+    expect(payload.image_id).toBe('img-001');
+    // profileName is null in the default state -> profile_name is undefined.
+    expect(payload.profile_name).toBeUndefined();
+    expect(payload.settings).toMatchObject({
+      input_clahe: true,
     });
+    // No `inference` field in the new sculptok-only render contract.
+    expect(payload).not.toHaveProperty('inference');
   });
 
   it('render patches output and session after success', () => {
@@ -115,8 +90,8 @@ describe('RenderService', () => {
     expect(blobMock.get).toHaveBeenCalledWith('hash-abc');
   });
 
-  it('render pushes render:run history', () => {
+  it('render pushes render:run history with elapsed milliseconds', () => {
     service.render();
-    expect(treeMock.pushHistory).toHaveBeenCalledWith('render:run');
+    expect(treeMock.pushHistory).toHaveBeenCalledWith('render:run', 1230);
   });
 });

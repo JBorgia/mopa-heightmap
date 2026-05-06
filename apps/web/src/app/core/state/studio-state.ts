@@ -5,11 +5,6 @@ export const DEFAULT_MASK_BACKEND = 'threshold';
 export const DEFAULT_CLICKER_KEY = 'flood-fill';
 export const DEFAULT_MASK_EDGE_SOFTNESS = 0;
 export const DEFAULT_MASK_COVERAGE_PCT = 0;
-export const DEFAULT_DETAIL_BALANCE = 0.35;
-export const DEFAULT_RELIEF = 1;
-export const DEFAULT_TARGET_MP = 2;
-export const DEFAULT_SHARPEN = 0.2;
-export const DEFAULT_BILATERAL_STRENGTH = 0.08;
 export const DEFAULT_ACTIVE_ROUTE = 'wizard';
 export const DEFAULT_WIZARD_PAGE = 0;
 export const DEFAULT_EXPORT_PNG_ENABLED = true;
@@ -20,8 +15,6 @@ export const LOCAL_STORAGE_DEBOUNCE_MS = 500;
 export type ActiveRoute = 'wizard' | 'studio' | 'export';
 export type MaskBackend = 'birefnet' | 'rembg' | 'threshold';
 export type ClickerKey = 'flood-fill';
-export type UpscalerKey = 'realesrgan' | 'swinir';
-
 export interface SourceMeta {
   w: number;
   h: number;
@@ -38,11 +31,6 @@ export interface HistoryEntry {
    * export); absent for instantaneous events like profile selection.
    */
   durationMs?: number;
-}
-
-export interface ToneCurvePoint {
-  input: number;
-  output: number;
 }
 
 export interface PassPlanEntry {
@@ -80,18 +68,7 @@ export interface StudioState {
       coveragePct: number;
     };
     render: {
-      detailBalance: number;
-      multires: boolean;
-      relief: number;
       profileName: string | null;
-    };
-    advanced: {
-      preUpscale: boolean;
-      upscaler: UpscalerKey;
-      targetMP: number;
-      sharpen: number;
-      toneCurve: ToneCurvePoint[];
-      bilateralStrength: number;
     };
   };
   output: {
@@ -127,21 +104,7 @@ export const DEFAULT_STUDIO_STATE: StudioState = {
       coveragePct: DEFAULT_MASK_COVERAGE_PCT,
     },
     render: {
-      detailBalance: DEFAULT_DETAIL_BALANCE,
-      multires: false,
-      relief: DEFAULT_RELIEF,
       profileName: null,
-    },
-    advanced: {
-      preUpscale: false,
-      upscaler: 'realesrgan',
-      targetMP: DEFAULT_TARGET_MP,
-      sharpen: DEFAULT_SHARPEN,
-      toneCurve: [
-        { input: 0, output: 0 },
-        { input: 1, output: 1 },
-      ],
-      bilateralStrength: DEFAULT_BILATERAL_STRENGTH,
     },
   },
   output: {
@@ -185,7 +148,6 @@ export function deserializeStudioState(raw: string | null): StudioState {
         ...parsed.pipeline,
         mask: { ...cloneDefaultStudioState().pipeline.mask, ...parsed.pipeline?.mask },
         render: { ...cloneDefaultStudioState().pipeline.render, ...parsed.pipeline?.render },
-        advanced: { ...cloneDefaultStudioState().pipeline.advanced, ...parsed.pipeline?.advanced },
       },
       output: { ...cloneDefaultStudioState().output, ...parsed.output },
       ui: { ...cloneDefaultStudioState().ui, ...parsed.ui },

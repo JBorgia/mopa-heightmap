@@ -16,7 +16,6 @@ import { MaskBackend } from '../../core/state/studio-state';
 export const STUDIO_SECTION_TITLES = {
   mask: 'Mask',
   render: 'Render',
-  advanced: 'Advanced',
   output: 'Output',
 } as const;
 
@@ -25,11 +24,6 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
   { label: 'RemBG (fast)', value: 'rembg' },
   { label: 'Threshold (no install needed)', value: 'threshold' },
 ];
-
-export const STUDIO_UPSCALER_OPTIONS = [
-  { label: 'Real-ESRGAN', value: 'realesrgan' },
-  { label: 'SwinIR', value: 'swinir' },
-] as const;
 
 @Component({
   selector: 'app-studio-shell',
@@ -130,37 +124,6 @@ export const STUDIO_UPSCALER_OPTIONS = [
               <p-accordion-content>
                 <div class="panel-body">
                   <div class="field">
-                    <label>Detail balance <span class="value-badge">{{ pipeline().render.detailBalance | number:'1.2-2' }}</span></label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      [value]="pipeline().render.detailBalance"
-                      (change)="onDetailBalanceChange($event)"
-                    />
-                  </div>
-                  <div class="field">
-                    <label>Relief strength <span class="value-badge">{{ pipeline().render.relief | number:'1.2-2' }}</span></label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.01"
-                      [value]="pipeline().render.relief"
-                      (change)="onReliefChange($event)"
-                    />
-                  </div>
-                  <div class="field field-toggle">
-                    <label for="multires">Multi-resolution</label>
-                    <input
-                      id="multires"
-                      type="checkbox"
-                      [checked]="pipeline().render.multires"
-                      (change)="onMultiresChange($event)"
-                    />
-                  </div>
-                  <div class="field">
                     <label for="render-profile">Material profile</label>
                     <select
                       id="render-profile"
@@ -181,70 +144,10 @@ export const STUDIO_UPSCALER_OPTIONS = [
                   @if (output().elapsedSeconds !== null) {
                     <p class="hint">Rendered in {{ output().elapsedSeconds | number:'1.1-1' }} s</p>
                   }
-                </div>
-              </p-accordion-content>
-            </p-accordion-panel>
-
-            <!-- ADVANCED panel -->
-            <p-accordion-panel value="advanced">
-              <p-accordion-header>{{ sectionTitles.advanced }}</p-accordion-header>
-              <p-accordion-content>
-                <div class="panel-body">
-                  <div class="field field-toggle">
-                    <label for="pre-upscale">Pre-upscale</label>
-                    <input
-                      id="pre-upscale"
-                      type="checkbox"
-                      [checked]="pipeline().advanced.preUpscale"
-                      (change)="onPreUpscaleChange($event)"
-                    />
-                  </div>
-                  <div class="field">
-                    <label for="upscaler">Upscaler</label>
-                    <select
-                      id="upscaler"
-                      [value]="pipeline().advanced.upscaler"
-                      (change)="onUpscalerChange($event)"
-                    >
-                      @for (opt of upscalerOptions; track opt.value) {
-                        <option [value]="opt.value">{{ opt.label }}</option>
-                      }
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="target-mp">Target megapixels</label>
-                    <input
-                      id="target-mp"
-                      type="number"
-                      min="0.5"
-                      max="20"
-                      step="0.5"
-                      [value]="pipeline().advanced.targetMP"
-                      (change)="onTargetMPChange($event)"
-                    />
-                  </div>
-                  <div class="field">
-                    <label>Sharpen <span class="value-badge">{{ pipeline().advanced.sharpen | number:'1.2-2' }}</span></label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.01"
-                      [value]="pipeline().advanced.sharpen"
-                      (change)="onSharpenChange($event)"
-                    />
-                  </div>
-                  <div class="field">
-                    <label>Bilateral strength <span class="value-badge">{{ pipeline().advanced.bilateralStrength | number:'1.2-2' }}</span></label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      [value]="pipeline().advanced.bilateralStrength"
-                      (change)="onBilateralChange($event)"
-                    />
-                  </div>
+                  <p class="hint">
+                    Heightmap comes from sculptok (auto-pull) or a supplied PNG —
+                    pre-sculptok input prep and per-pass refinement controls land here next.
+                  </p>
                 </div>
               </p-accordion-content>
             </p-accordion-panel>
@@ -671,7 +574,6 @@ export const STUDIO_UPSCALER_OPTIONS = [
 export class StudioShellComponent {
   protected readonly sectionTitles = STUDIO_SECTION_TITLES;
   protected readonly maskBackends = STUDIO_MASK_BACKENDS;
-  protected readonly upscalerOptions = STUDIO_UPSCALER_OPTIONS;
 
   protected readonly sessionTree = inject(SessionTreeService);
   protected readonly sessionService = inject(SessionService);
@@ -712,18 +614,6 @@ export class StudioShellComponent {
     this.maskService.createMask();
   }
 
-  protected onDetailBalanceChange(event: Event): void {
-    this.renderService.setDetailBalance(Number((event.target as HTMLInputElement).value));
-  }
-
-  protected onReliefChange(event: Event): void {
-    this.renderService.setRelief(Number((event.target as HTMLInputElement).value));
-  }
-
-  protected onMultiresChange(event: Event): void {
-    this.renderService.setMultires((event.target as HTMLInputElement).checked);
-  }
-
   protected onProfileChange(event: Event): void {
     const select = event.target as HTMLSelectElement;
     this.sessionService.setProfileName(select.value || null);
@@ -731,65 +621,6 @@ export class StudioShellComponent {
 
   protected render(): void {
     this.renderService.render();
-  }
-
-  protected onPreUpscaleChange(event: Event): void {
-    const checked = (event.target as HTMLInputElement).checked;
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        advanced: { ...current.pipeline.advanced, preUpscale: checked },
-      },
-    }));
-  }
-
-  protected onUpscalerChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value as 'realesrgan' | 'swinir';
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        advanced: { ...current.pipeline.advanced, upscaler: value },
-      },
-    }));
-  }
-
-  protected onTargetMPChange(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value);
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        advanced: { ...current.pipeline.advanced, targetMP: value },
-      },
-    }));
-  }
-
-  protected onSharpenChange(event: Event): void {
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        advanced: {
-          ...current.pipeline.advanced,
-          sharpen: Number((event.target as HTMLInputElement).value),
-        },
-      },
-    }));
-  }
-
-  protected onBilateralChange(event: Event): void {
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        advanced: {
-          ...current.pipeline.advanced,
-          bilateralStrength: Number((event.target as HTMLInputElement).value),
-        },
-      },
-    }));
   }
 
   protected computePlan(): void {

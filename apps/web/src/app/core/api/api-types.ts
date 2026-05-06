@@ -15,7 +15,6 @@ export type PassPlanResponse = components['schemas']['PassPlanResponse'];
 export type PassEntry = components['schemas']['PassEntry'];
 export type ProfileDetail = components['schemas']['ProfileDetail'];
 export type HeightmapSettings = components['schemas']['HeightmapSettings'];
-export type InferenceConfig = components['schemas']['InferenceConfig'];
 
 export interface ApiErrorEnvelope {
   error: {
