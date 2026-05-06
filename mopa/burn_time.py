@@ -1,6 +1,6 @@
 """Per-pass burn-time estimator for an engraving stack.
 
-Given a :class:`zoedepth.laser.stages.PassPlan` plus the physical print
+Given a :class:`mopa.stages.PassPlan` plus the physical print
 size, estimate how long each pass takes and the total job duration. The
 arithmetic is the standard galvo-raster model:
 

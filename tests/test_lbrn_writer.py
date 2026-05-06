@@ -1,7 +1,7 @@
 """Tests for the LightBurn ``.lbrn2`` writer.
 
 The contract is round-trip fidelity: parsing the writer's output with the
-existing :func:`zoedepth.laser.lightburn_cards.load_lightburn_card` parser
+existing :func:`mopa.lightburn_cards.load_lightburn_card` parser
 must recover ``ColorEntry`` rows whose raw payload matches the source card
 verbatim.
 """
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from zoedepth.laser.lbrn_writer import (
+from mopa.lbrn_writer import (
     LBRN_DEFAULT_APP_VERSION,
     LBRN_DEFAULT_MIRROR_X,
     LBRN_DEFAULT_MIRROR_Y,
@@ -32,12 +32,12 @@ def _write_tiny_png(path: Path, w: int = 8, h: int = 8) -> Path:
     arr = np.zeros((h, w), dtype=np.uint8)
     Image.fromarray(arr, mode="L").save(path)
     return path
-from zoedepth.laser.lightburn_cards import (
+from mopa.lightburn_cards import (
     DEFAULT_CARDS_DIR,
     DEFAULT_PROFILE_NAME,
     load_lightburn_card,
 )
-from zoedepth.laser.stages import (
+from mopa.stages import (
     DEFAULT_PASS_ORDER,
     PASS_KIND_FORM,
     plan_passes,

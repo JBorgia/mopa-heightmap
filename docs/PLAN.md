@@ -2,7 +2,7 @@
 
 A focused desktop app that turns a photo into a LightBurn 3D Sliced–ready heightmap optimized for **JPT MOPA fiber galvo** engraving on metal.
 
-Built as a thin UI + export layer on top of the existing ZoeDepth model and the new `zoedepth.laser` pipeline. **The model is not modified.**
+Built as a thin UI + export layer on top of the existing ZoeDepth model and the new `mopa` pipeline. **The model is not modified.**
 
 ---
 
@@ -61,9 +61,9 @@ photo.jpg
 │  UI Layer        ui/mopa_studio.py          │  ← Gradio Blocks
 │                  ui/app.py (entrypoint)     │
 ├─────────────────────────────────────────────┤
-│  Service Layer   zoedepth/laser/service.py  │  ← orchestrates infer + process + export
+│  Service Layer   mopa/service.py  │  ← orchestrates infer + process + export
 ├─────────────────────────────────────────────┤
-│  Pipeline Layer  zoedepth/laser/            │
+│  Pipeline Layer  mopa/            │
 │                  ├─ heightmap.py            │  (already built)
 │                  ├─ preview.py              │  (already built)
 │                  ├─ profiles.py             │  (already built)
@@ -75,7 +75,7 @@ photo.jpg
 └─────────────────────────────────────────────┘
 ```
 
-The CLI (`apps/zoe2lightburn.py`) and the UI both call into the **service layer**. Same code path, two front-ends.
+The CLI (`apps/mopa2lightburn.py`) and the UI both call into the **service layer**. Same code path, two front-ends.
 
 ### 3.2 Process model
 
@@ -173,7 +173,7 @@ PIL.Image (RGB, uint8)
 
 ## 5. Service Layer Specification
 
-New file: `zoedepth/laser/service.py`
+New file: `mopa/service.py`
 
 ```python
 class HeightmapService:
@@ -210,7 +210,7 @@ class ExportBundle:
 
 ## 6. Exporter Specification
 
-New file: `zoedepth/laser/exporter.py`
+New file: `mopa/exporter.py`
 
 Responsibilities:
 - Compute consistent file stems (strip trailing `_lightburn`, etc., to avoid `_lightburn_lightburn.png`).
@@ -223,14 +223,14 @@ Responsibilities:
 
 ## 7. CLI Parity
 
-`apps/zoe2lightburn.py` keeps working unchanged. After the refactor, both UI and CLI call `HeightmapService`. Anything the UI can do, the CLI can do via flags.
+`apps/mopa2lightburn.py` keeps working unchanged. After the refactor, both UI and CLI call `HeightmapService`. Anything the UI can do, the CLI can do via flags.
 
 **New CLI subcommand to add:** `--gui` to launch the UI from the same script.
 
 ```bash
-python apps/zoe2lightburn.py --gui
-python apps/zoe2lightburn.py input.jpg --profile mopa_60w_brass --output out/coin.png
-python apps/zoe2lightburn.py --make-ramp outputs/ramp.png
+python apps/mopa2lightburn.py --gui
+python apps/mopa2lightburn.py input.jpg --profile mopa_60w_brass --output out/coin.png
+python apps/mopa2lightburn.py --make-ramp outputs/ramp.png
 ```
 
 ---
@@ -288,7 +288,7 @@ v1 ships steps 1–3. The LUT input UI is v2.
 ```
 mopa-heightmap/
 ├─ apps/
-│  └─ zoe2lightburn.py            # CLI + --gui entrypoint
+│  └─ mopa2lightburn.py            # CLI + --gui entrypoint
 ├─ ui/
 │  ├─ app.py                      # rewritten: launches mopa_studio
 │  └─ mopa_studio.py              # NEW: Gradio Blocks UI
@@ -438,7 +438,7 @@ Each step is a self-contained PR-sized change.
 3. **Profile validation** — schema check + clear error messages.
 4. **Tests** — add `tests/` with the suite from §13. Get CI-greenable on a CPU-only machine (skip model tests).
 5. **UI v1** — `ui/mopa_studio.py` implementing §4. Wire everything to the service.
-6. **CLI `--gui`** — launch the UI from `apps/zoe2lightburn.py --gui`.
+6. **CLI `--gui`** — launch the UI from `apps/mopa2lightburn.py --gui`.
 7. **README pass** — replace the upstream ZoeDepth quickstart at the top with a "MOPA Heightmap Studio" quickstart. Keep the old material lower as "Underlying model".
 8. **Caching** — input-hash → depth cache for fast slider tweaks.
 9. **Polish** — CPU warning, status bar, error handling, atomic writes verified.
@@ -540,7 +540,7 @@ These don't block starting, but should be resolved before v1 ships:
 
 ## 18. Definition of Done (v1)
 
-- `python apps/zoe2lightburn.py --gui` opens the app in the default browser.
+- `python apps/mopa2lightburn.py --gui` opens the app in the default browser.
 - Dropping a 2000×2000 photo, picking `mopa_60w_brass`, clicking Export produces all 4 output files in `outputs/` within 5 seconds on a CUDA machine.
 - The exported `_lightburn.png` opens in LightBurn and behaves correctly in 3D Sliced mode (verified by the operator on real metal).
 - `pytest` passes on a fresh checkout without GPU.
@@ -592,7 +592,7 @@ The pipeline expands from "normalize + tone-map" into a true four-stage suite. E
 
 ### 20.1 Stage A — Input conditioning (before depth inference)
 
-New module: `zoedepth/laser/imgproc/input.py`
+New module: `mopa/imgproc/input.py`
 
 | Step | Algorithm / library | Notes |
 |---|---|---|
@@ -610,7 +610,7 @@ New module: `zoedepth/laser/imgproc/input.py`
 
 ### 20.2 Stage B — Depth synthesis
 
-New module: `zoedepth/laser/imgproc/depth.py`
+New module: `mopa/imgproc/depth.py`
 
 | Step | Notes |
 |---|---|
@@ -623,7 +623,7 @@ New module: `zoedepth/laser/imgproc/depth.py`
 
 ### 20.3 Stage C — Heightmap shaping (post-processing)
 
-Existing `zoedepth/laser/heightmap.py`, expanded:
+Existing `mopa/heightmap.py`, expanded:
 
 | Step | New / existing |
 |---|---|
@@ -643,7 +643,7 @@ Existing `zoedepth/laser/heightmap.py`, expanded:
 
 ### 20.4 Stage D — Layer derivation (multi-pass)
 
-New module: `zoedepth/laser/imgproc/layers.py`. See §21.
+New module: `mopa/imgproc/layers.py`. See §21.
 
 ### 20.5 UI surfacing
 
@@ -790,7 +790,7 @@ This is the single biggest workflow win: operators stop copy-pasting cut setting
 
 ### 22.4 Implementation notes
 
-- New module: `zoedepth/laser/lightburn/` with `lbrn2_writer.py`, `clb_writer.py`, `lbset_writer.py`, and `xml_helpers.py`.
+- New module: `mopa/lightburn/` with `lbrn2_writer.py`, `clb_writer.py`, `lbset_writer.py`, and `xml_helpers.py`.
 - LightBurn writes `.lbrn2` either as plain XML or gzip-compressed; we'll author plain XML (LightBurn imports both) to keep diffs reviewable.
 - DPI handling: LightBurn respects the PNG pHYs chunk *and* the `<DPI>` element. We set both consistently from the operator's mm assignment.
 - Compatibility: target LightBurn 1.7+ schema; smoke-test against current public release before each app release.
@@ -809,7 +809,7 @@ This is the single biggest workflow win: operators stop copy-pasting cut setting
 ```
 mopa-heightmap/
 ├─ apps/
-│  └─ zoe2lightburn.py            # CLI + --gui
+│  └─ mopa2lightburn.py            # CLI + --gui
 ├─ ui/
 │  ├─ app.py
 │  └─ mopa_studio.py
@@ -862,8 +862,8 @@ Phases are sized so each one is independently shippable.
 
 ### Phase 0 — Foundation (✅ done)
 
-- `zoedepth.laser` package: heightmap, preview, profiles, masks, tiling.
-- `apps/zoe2lightburn.py` CLI.
+- `mopa` package: heightmap, preview, profiles, masks, tiling.
+- `apps/mopa2lightburn.py` CLI.
 - Initial 4 MOPA YAML profiles.
 
 ### Phase 1 — v1 Studio (§14 plus the v1 add-ons from §15)

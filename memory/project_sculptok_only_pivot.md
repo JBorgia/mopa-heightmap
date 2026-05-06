@@ -28,7 +28,7 @@ the entire depth pipeline (~63k lines).
 - The subject mask is a SEPARATE deliverable artifact (mask.png), not
   applied to the heightmap. LightBurn handles subject/background
   isolation at engrave time.
-- The package directory ``zoedepth/laser/`` is misleadingly named (we
+- The package directory ``mopa/`` is misleadingly named (we
   forked from the ZoeDepth repo) but a rename is deferred — don't
   re-link to upstream ZoeDepth or assume any depth code lives there.
 - Pre-sculptok image conditioning (CLAHE, denoise, white-balance,

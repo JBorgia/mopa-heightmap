@@ -1,7 +1,7 @@
-"""Thin adapter: wraps zoedepth.laser.* to serve the FastAPI routes.
+"""Thin adapter: wraps mopa.* to serve the FastAPI routes.
 
 NO business logic lives here — only the glue between HTTP schemas and the
-existing Python service objects.  All math stays in zoedepth.laser.*.
+existing Python service objects.  All math stays in mopa.*.
 """
 from __future__ import annotations
 
@@ -17,15 +17,15 @@ import numpy as np
 from PIL import Image
 
 # Re-export the concrete service classes.
-from zoedepth.laser.service import (
+from mopa.service import (
     DEFAULT_SETTINGS,
     HeightmapService,
     PreviewResult,
     merge_profile_settings,
 )
-from zoedepth.laser.settings import AppSettings, load_settings
-from zoedepth.laser.subject_mask import load_masker, list_maskers
-from zoedepth.laser.click_mask import (
+from mopa.settings import AppSettings, load_settings
+from mopa.subject_mask import load_masker, list_maskers
+from mopa.click_mask import (
     DEFAULT_CLICKER_KEY,
     DEFAULT_FLOOD_TOLERANCE,
     DEFAULT_FLOOD_MAX_FRACTION,
@@ -35,21 +35,21 @@ from zoedepth.laser.click_mask import (
     load_clicker,
     _FloodFillClicker,  # type: ignore[attr-defined]
 )
-from zoedepth.laser.profiles import (
+from mopa.profiles import (
     list_profiles,
     load_profile,
     get_user_profiles_dir,
     validate_profile,
 )
-from zoedepth.laser.exporter import hash_image, save_lightburn_png, save_master16_png
-from zoedepth.laser.heightmap import to_uint16
-from zoedepth.laser.lightburn_cards import (
+from mopa.exporter import hash_image, save_lightburn_png, save_master16_png
+from mopa.heightmap import to_uint16
+from mopa.lightburn_cards import (
     DEFAULT_CARDS_DIR,
     DEFAULT_PROFILE_NAME,
     load_lightburn_card,
 )
-from zoedepth.laser.lbrn_writer import build_lbrn_tree, ShapeRef
-from zoedepth.laser.stages import plan_passes as _plan_passes
+from mopa.lbrn_writer import build_lbrn_tree, ShapeRef
+from mopa.stages import plan_passes as _plan_passes
 
 from . import blob_store
 from .schemas import (
@@ -288,8 +288,8 @@ def do_export_lbrn2(
     import zipfile
     from xml.dom import minidom
 
-    from zoedepth.laser.lbrn_writer import build_lbrn_tree
-    from zoedepth.laser.exporter import save_master16_png
+    from mopa.lbrn_writer import build_lbrn_tree
+    from mopa.exporter import save_master16_png
 
     plan = get_plan(plan_id)
     if plan is None:
@@ -385,7 +385,7 @@ def do_plan(
     masks are computed with LAB k-means on the source image when
     ``settings.n_color_passes`` is set (defaults to 0 = monochrome stack).
     """
-    from zoedepth.laser.color_quantize import color_masks_for_planner, quantize_to_color_masks
+    from mopa.color_quantize import color_masks_for_planner, quantize_to_color_masks
 
     hm = blob_store.load_heightmap(heightmap_id)
     if hm is None:

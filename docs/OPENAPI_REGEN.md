@@ -12,7 +12,7 @@ fails the next frontend build.
 Any time you touch:
 
 * a Pydantic model in `apps/api/schemas.py`
-* a `DEFAULT_SETTINGS` key in `zoedepth/laser/service.py` that's mirrored
+* a `DEFAULT_SETTINGS` key in `mopa/service.py` that's mirrored
   into `HeightmapSettings`
 * a route signature in `apps/api/routes/*.py`
 

@@ -163,13 +163,14 @@ def get_builtin_profiles_dirs() -> List[Path]:
        see pyproject.toml force-include).
     """
     candidates: List[Path] = []
-    repo_dir = Path(__file__).resolve().parents[2] / "profiles"
+    # mopa/profiles.py -> parents[0]=mopa -> parents[1]=repo root.
+    repo_dir = Path(__file__).resolve().parents[1] / "profiles"
     candidates.append(repo_dir)
 
     # Wheel asset directory lives next to the top-level packages.
     try:
-        import zoedepth  # noqa: F401
-        site_root = Path(zoedepth.__file__).resolve().parent.parent
+        import mopa  # noqa: F401
+        site_root = Path(mopa.__file__).resolve().parent.parent
         candidates.append(site_root / "mopa_heightmap_assets" / "profiles")
     except Exception:  # pragma: no cover
         pass

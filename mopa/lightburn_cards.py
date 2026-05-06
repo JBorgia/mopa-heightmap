@@ -33,7 +33,7 @@ __all__ = [
 
 
 # Repo-relative location of the canonical color cards supplied by the user.
-DEFAULT_CARDS_DIR = Path(__file__).resolve().parents[2] / "LightBurn Colour Card"
+DEFAULT_CARDS_DIR = Path(__file__).resolve().parents[1] / "LightBurn Colour Card"
 
 # The user's machine. Phase 11 decision: 60 W MOPA (M7) is the autoload default.
 DEFAULT_PROFILE_NAME = "Colour60W-M7"

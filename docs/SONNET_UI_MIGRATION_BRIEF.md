@@ -62,7 +62,7 @@ mopa-heightmap/
 │   │   │   ├── export.py         # /export/png, /export/lbrn2, /export/stl
 │   │   │   └── session.py        # WebSocket /ws/session/{id}
 │   │   ├── schemas.py            # Pydantic models (mirror InferenceSettings)
-│   │   └── service_adapter.py    # Wraps existing zoedepth.laser.* code
+│   │   └── service_adapter.py    # Wraps existing mopa.* code
 │   └── web/                      # Angular workspace
 │       ├── angular.json
 │       ├── package.json
@@ -83,7 +83,7 @@ mopa-heightmap/
 │           │   └── shared/                       # PrimeNG wrappers
 │           └── styles/
 ├── ui/                           # DELETED in Phase 9f
-├── zoedepth/laser/               # unchanged — single source of truth
+├── mopa/               # unchanged — single source of truth
 ├── tests/                        # existing pytest suite + new parity tests
 └── IMPLEMENTATION_PLAN.md
 ```
@@ -93,7 +93,7 @@ mopa-heightmap/
 ## 3. Headless service surface (Phase 9a — do this first)
 
 **The single rule:** the API must be a *thin* adapter. All math stays in
-`zoedepth/laser/*` and `ui/services/*`. No business logic in `apps/api/routes/`.
+`mopa/*` and `ui/services/*`. No business logic in `apps/api/routes/`.
 
 ### Endpoint contract
 
@@ -280,7 +280,7 @@ Add `apps/web/playwright/perf.spec.ts` with hard assertions:
 
 | Layer | Tool | What it pins |
 |---|---|---|
-| Python service | pytest (existing 326) | All zoedepth.laser + ui.services contracts |
+| Python service | pytest (existing 326) | All mopa + ui.services contracts |
 | API parity | pytest + httpx | Endpoint outputs == direct service calls (byte-exact) |
 | Angular unit | Jest | Components in isolation, services with mocked HTTP |
 | Angular integration | Jest + Angular TestBed | SignalTree mutations propagate correctly |
@@ -351,7 +351,7 @@ In order of priority:
 2. `ui/services/inference_service.py` — the contract the API must wrap.
 3. `ui/mopa_wizard.py` — wizard UX to reproduce.
 4. `ui/mopa_studio.py` — studio UX + Phase 8 accordion to reproduce.
-5. `zoedepth/laser/subject_mask.py`, `click_mask.py`, `depth_fusion.py` — registries Sonnet must expose 1:1.
+5. `mopa/subject_mask.py`, `click_mask.py`, `depth_fusion.py` — registries Sonnet must expose 1:1.
 6. `tests/test_studio_phase8.py`, `tests/test_wizard_phase8.py` — golden-file patterns to mirror.
 7. `profiles/*.json` — schema the `/profiles` endpoint must round-trip.
 

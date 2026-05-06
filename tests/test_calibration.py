@@ -1,18 +1,18 @@
-"""Tests for :mod:`zoedepth.laser.calibration`."""
+"""Tests for :mod:`mopa.calibration`."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from zoedepth.laser.calibration import (
+from mopa.calibration import (
     DEFAULT_RAMP_AXIS,
     DEFAULT_RAMP_GRAY_LEVELS,
     RampMeasurement,
     calibration_lut_from_ramp_photo,
     measure_engraved_ramp,
 )
-from zoedepth.laser.lut import CalibrationLUT
+from mopa.lut import CalibrationLUT
 
 
 def _synthetic_engraved_ramp(

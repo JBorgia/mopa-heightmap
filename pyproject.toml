@@ -54,7 +54,7 @@ dev = [
 ]
 
 [project.scripts]
-mopa-heightmap = "apps.zoe2lightburn:main"
+mopa-heightmap = "apps.mopa2lightburn:main"
 
 [project.urls]
 Homepage = "https://github.com/your-org/mopa-heightmap"

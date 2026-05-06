@@ -1,22 +1,22 @@
-"""Tests for :mod:`zoedepth.laser.burn_time`."""
+"""Tests for :mod:`mopa.burn_time`."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from zoedepth.laser.burn_time import (
+from mopa.burn_time import (
     BurnEstimate,
     DEFAULT_PASS_COUNT,
     PassBurnEstimate,
     estimate_burn_time,
     format_seconds,
 )
-from zoedepth.laser.lightburn_cards import (
+from mopa.lightburn_cards import (
     DEFAULT_CARDS_DIR,
     DEFAULT_PROFILE_NAME,
     load_lightburn_card,
 )
-from zoedepth.laser.stages import (
+from mopa.stages import (
     PASS_KIND_FORM,
     PASS_KIND_PRE_CLEAN,
     plan_passes,

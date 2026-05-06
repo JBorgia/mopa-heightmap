@@ -1,9 +1,9 @@
-"""Tests for :mod:`zoedepth.laser.pass_masks`."""
+"""Tests for :mod:`mopa.pass_masks`."""
 from __future__ import annotations
 
 import numpy as np
 
-from zoedepth.laser.pass_masks import (
+from mopa.pass_masks import (
     DEFAULT_PHOTO_TONAL_LEVELS,
     DEFAULT_PHOTO_TONAL_STRENGTH,
     photo_tonal_mask,

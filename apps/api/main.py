@@ -29,7 +29,7 @@ app = FastAPI(
     version="9.0.0",
     description=(
         "Headless service layer powering the Angular + PrimeNG SPA. "
-        "All depth inference and heightmap math lives in zoedepth.laser.*; "
+        "All depth inference and heightmap math lives in mopa.*; "
         "this API is a thin HTTP adapter."
     ),
     docs_url="/api/docs",

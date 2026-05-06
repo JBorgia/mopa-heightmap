@@ -1,4 +1,4 @@
-"""Tests for :mod:`zoedepth.laser.sculptok_client`.
+"""Tests for :mod:`mopa.sculptok_client`.
 
 All tests run against a fully-mocked ``requests.Session``; no network
 calls. Every endpoint has a happy-path test plus an error-path test
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from zoedepth.laser.sculptok_client import (
+from mopa.sculptok_client import (
     BASE_URL,
     PROMPT_PRICE_3D,
     PROMPT_PRICE_HD_FIX,

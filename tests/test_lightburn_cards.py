@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from zoedepth.laser.lightburn_cards import (
+from mopa.lightburn_cards import (
     DEFAULT_CARDS_DIR,
     DEFAULT_PROFILE_NAME,
     ColorEntry,

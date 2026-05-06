@@ -1,7 +1,7 @@
 """Emit a LightBurn ``.lbrn2`` project from a planned engraving stack.
 
 Round-trip contract: parsing the output of :func:`write_lbrn` with
-:func:`zoedepth.laser.lightburn_cards.load_lightburn_card` MUST recover
+:func:`mopa.lightburn_cards.load_lightburn_card` MUST recover
 ``ColorEntry`` rows whose ``raw`` payload matches the original card
 verbatim. We never rewrite, scale, or re-derive the machine parameters.
 

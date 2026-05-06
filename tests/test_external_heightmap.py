@@ -1,4 +1,4 @@
-"""Tests for :mod:`zoedepth.laser.external_heightmap`.
+"""Tests for :mod:`mopa.external_heightmap`.
 
 Covers polarity normalisation, auto-stretch into the engraving budget,
 resolution alignment, and the end-to-end ``fit_external_heightmap_to_photo``
@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from zoedepth.laser.external_heightmap import (
+from mopa.external_heightmap import (
     DEFAULT_AUTO_STRETCH,
     DEFAULT_POLARITY,
     EXTERNAL_DEPTH_DEEP_LIMIT,

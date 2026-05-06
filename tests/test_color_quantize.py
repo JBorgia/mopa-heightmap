@@ -1,11 +1,11 @@
-"""Tests for :mod:`zoedepth.laser.color_quantize`."""
+"""Tests for :mod:`mopa.color_quantize`."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from zoedepth.laser.color_quantize import (
+from mopa.color_quantize import (
     DEFAULT_BIN_RESOLUTION,
     DEFAULT_DOWNSAMPLE_LONG_SIDE,
     DEFAULT_K,

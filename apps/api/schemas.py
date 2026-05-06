@@ -1,6 +1,6 @@
-"""Pydantic schemas — mirror DEFAULT_SETTINGS in zoedepth.laser.service.
+"""Pydantic schemas — mirror DEFAULT_SETTINGS in mopa.service.
 
-Every field that exists in zoedepth.laser.service.DEFAULT_SETTINGS has a
+Every field that exists in mopa.service.DEFAULT_SETTINGS has a
 corresponding field here with the identical default so the API stays in
 sync. The CI drift-guard (``apps/api/export_openapi.py``) generates
 openapi.json from these models and a git-diff check fails the build if

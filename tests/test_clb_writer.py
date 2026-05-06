@@ -11,8 +11,8 @@ from pathlib import Path
 
 import xml.etree.ElementTree as ET
 
-from zoedepth.laser.lbrn_writer import CLB_ROOT_TAG, build_clb_tree, write_clb
-from zoedepth.laser.lightburn_cards import (
+from mopa.lbrn_writer import CLB_ROOT_TAG, build_clb_tree, write_clb
+from mopa.lightburn_cards import (
     DEFAULT_CARDS_DIR, DEFAULT_PROFILE_NAME, load_lightburn_card,
 )
 

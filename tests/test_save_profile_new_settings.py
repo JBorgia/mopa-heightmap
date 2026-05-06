@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from zoedepth.laser.profiles import load_profile, scaffold_profile
-from zoedepth.laser.service import DEFAULT_SETTINGS
+from mopa.profiles import load_profile, scaffold_profile
+from mopa.service import DEFAULT_SETTINGS
 
 
 def test_scaffold_with_new_settings_round_trips(tmp_path: Path):

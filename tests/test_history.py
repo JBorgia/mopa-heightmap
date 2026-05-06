@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from zoedepth.laser.history import (
+from mopa.history import (
     HISTORY_PATH_ENV,
     HistoryEntry,
     append_history,

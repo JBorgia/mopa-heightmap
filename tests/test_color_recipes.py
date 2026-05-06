@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from zoedepth.laser.color_recipes import (
+from mopa.color_recipes import (
     ColorRecipe,
     ColorRecipeError,
     recipe_names,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from zoedepth.laser.imgproc import (
+from mopa.imgproc import (
     InputConditioningSettings,
     cap_longest_side,
     clahe_lightness,

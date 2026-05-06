@@ -17,15 +17,15 @@ from typing import Any, Dict
 
 from PIL import Image
 
-from zoedepth.laser.preview import create_calibration_ramp
-from zoedepth.laser.profiles import load_profile
-from zoedepth.laser.service import (
+from mopa.preview import create_calibration_ramp
+from mopa.profiles import load_profile
+from mopa.service import (
     DEFAULT_SETTINGS,
     ExportRequest,
     HeightmapService,
     merge_profile_settings,
 )
-from zoedepth.laser.settings import load_settings
+from mopa.settings import load_settings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -288,7 +288,7 @@ def main() -> None:
     app_settings = load_settings()
 
     if args.save_profile:
-        from zoedepth.laser.profiles import scaffold_profile
+        from mopa.profiles import scaffold_profile
 
         profile_data: Dict[str, Any] = {}
         if args.profile:
@@ -333,8 +333,8 @@ def main() -> None:
     sculptok_client = None
     sculptok_params = None
     if has_sculptok:
-        from zoedepth.laser.settings import resolve_sculptok_api_key
-        from zoedepth.laser.sculptok_client import (
+        from mopa.settings import resolve_sculptok_api_key
+        from mopa.sculptok_client import (
             SculptokClient, SculptokDepthMapParams,
         )
 
@@ -400,7 +400,7 @@ def main() -> None:
         # the photo and points this run's external_heightmap_path at it.
         per_input_settings = dict(settings)
         if sculptok_client is not None and sculptok_params is not None:
-            from zoedepth.laser.sculptok_client import SculptokInsufficientCreditsError
+            from mopa.sculptok_client import SculptokInsufficientCreditsError
 
             print(
                 f"  Sculptok: generating depth-map "

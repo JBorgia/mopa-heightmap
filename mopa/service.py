@@ -13,7 +13,7 @@ ready relief; the service does NOT mutate it. We just:
         → bundle: lightburn.png, master16.png, project.lbrn2,
                   cut-library.clb, per-pass PNGs, settings.json, ...
 
-The CLI (`apps/zoe2lightburn.py`) and the API adapter own the sculptok
+The CLI (`apps/mopa2lightburn.py`) and the API adapter own the sculptok
 auto-pull: they hit sculptok, save the PNG to a temp path, and set
 ``settings["external_heightmap_path"]`` before calling render().
 """

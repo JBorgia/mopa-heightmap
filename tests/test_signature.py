@@ -1,10 +1,10 @@
-"""Tests for :mod:`zoedepth.laser.signature`."""
+"""Tests for :mod:`mopa.signature`."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from zoedepth.laser.signature import (
+from mopa.signature import (
     DEFAULT_CORNER,
     DEFAULT_HEIGHT_FRACTION,
     DEFAULT_MARGIN_FRACTION,

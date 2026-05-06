@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from zoedepth.laser.exporter import (
+from mopa.exporter import (
     hash_image,
     resolve_export_stem,
     save_lightburn_png,

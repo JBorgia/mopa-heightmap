@@ -4,12 +4,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from zoedepth.laser.lightburn_cards import (
+from mopa.lightburn_cards import (
     DEFAULT_CARDS_DIR,
     DEFAULT_PROFILE_NAME,
     load_lightburn_card,
 )
-from zoedepth.laser.stages import (
+from mopa.stages import (
     DEFAULT_PASS_ORDER,
     PASS_KIND_COLOR_PREFIX,
     PASS_KIND_FORM,

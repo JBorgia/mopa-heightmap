@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from zoedepth.laser.profiles import (
+from mopa.profiles import (
     ProfileValidationError,
     list_profiles,
     load_profile,

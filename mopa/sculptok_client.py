@@ -5,7 +5,7 @@ Sculptok publishes a credit-based REST API at
 depth maps from input images. The authoritative source for the relief in
 our pivot architecture: send a photo to Sculptok, poll for completion,
 download the resulting heightmap PNG, then feed it straight into
-:mod:`zoedepth.laser.external_heightmap` and the rest of the engraving
+:mod:`mopa.external_heightmap` and the rest of the engraving
 toolchain. End-to-end automated:
 
     photo  ->  Sculptok API  ->  heightmap PNG  ->  external_heightmap mode

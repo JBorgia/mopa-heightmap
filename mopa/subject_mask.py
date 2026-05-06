@@ -8,7 +8,7 @@ which downstream stages use to:
 * gate detail injection so background noise doesn't get etched,
 * feed the per-pass color planner with a cutout silhouette.
 
-Backend choice mirrors :mod:`zoedepth.laser.backends`:
+Backend choice mirrors :mod:`mopa.backends`:
 
 * ``rembg`` — pure-CPU ONNX, MIT, ~170 MB weights. Default-on.
 * ``birefnet`` — SOTA dichotomous segmentation, MIT, ~220 M params. Default-on
@@ -61,7 +61,7 @@ DEFAULT_FEATHER_PX: int = 3
 
 # Heightmap value to write into the background after flattening.
 # 1.0 == "laser surface, no engraving" under the standard black_is_deep
-# convention (see :func:`zoedepth.laser.heightmap.orient_for_lightburn`).
+# convention (see :func:`mopa.heightmap.orient_for_lightburn`).
 DEFAULT_BACKGROUND_PLANE: float = 1.0
 
 # Percentile of the heightmap used by the no-weights ``threshold`` backend

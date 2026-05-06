@@ -21,17 +21,17 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from zoedepth.laser.lightburn_cards import (
+from mopa.lightburn_cards import (
     DEFAULT_CARDS_DIR,
     DEFAULT_PROFILE_NAME,
     load_lightburn_card,
 )
-from zoedepth.laser.service import (
+from mopa.service import (
     ExportRequest,
     HeightmapService,
     merge_profile_settings,
 )
-from zoedepth.laser.settings import AppSettings
+from mopa.settings import AppSettings
 
 
 def _write_synthetic_heightmap(target: Path, w: int = 96, h: int = 96) -> Path:
@@ -189,7 +189,7 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
     """The API path produces a self-contained zip — project + PNGs together."""
     from apps.api.service_adapter import do_export_lbrn2, store_plan
     from apps.api import blob_store as api_blob_store
-    from zoedepth.laser.stages import plan_passes
+    from mopa.stages import plan_passes
 
     request = ExportRequest(
         output_dir=tmp_path, base_stem="api_zip", write_preview=False,

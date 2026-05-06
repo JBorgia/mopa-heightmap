@@ -2,7 +2,7 @@
 
 Goal: take the source photo, find the K most-prominent perceptual colors,
 and emit one binary mask per cluster. Each mask becomes a separate
-:class:`zoedepth.laser.stages.EngravingPass` with the cut parameters of
+:class:`mopa.stages.EngravingPass` with the cut parameters of
 the chosen :class:`MaterialProfile` row of the same name.
 
 Why LAB k-means and not RGB:

@@ -1,10 +1,10 @@
-"""Tests for :mod:`zoedepth.laser.qa`."""
+"""Tests for :mod:`mopa.qa`."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from zoedepth.laser.qa import (
+from mopa.qa import (
     DEFAULT_BG_FLOATER_STD,
     DEFAULT_MIN_DYNAMIC_RANGE,
     QAFinding,

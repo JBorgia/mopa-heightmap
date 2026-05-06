@@ -1,4 +1,4 @@
-"""zoedepth.laser.imgproc — Stage A/B/D image-processing primitives."""
+"""mopa.imgproc — Stage A/B/D image-processing primitives."""
 from .input import (
     InputConditioningSettings,
     auto_orient,

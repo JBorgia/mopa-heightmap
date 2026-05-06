@@ -14,12 +14,12 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from zoedepth.laser.service import (
+from mopa.service import (
     DEFAULT_SETTINGS,
     HeightmapService,
     merge_profile_settings,
 )
-from zoedepth.laser.settings import AppSettings
+from mopa.settings import AppSettings
 
 
 # ---------------------------------------------------------------------------
@@ -84,13 +84,13 @@ class _StubService:
     """Replaces HeightmapService.render() with a deterministic output."""
 
     def render(self, image: Image.Image, settings: dict):
-        from zoedepth.laser.service import PreviewResult
+        from mopa.service import PreviewResult
         arr = np.zeros((image.height, image.width), dtype=np.float32)
         # Simple fill: mean of red channel / 255
         r_mean = np.asarray(image)[:, :, 0].mean() / 255.0
         arr[:] = r_mean
         preview = Image.fromarray((arr * 255).astype(np.uint8), "L").convert("RGB")
-        from zoedepth.laser.exporter import hash_image
+        from mopa.exporter import hash_image
         return PreviewResult(
             heightmap=arr,
             preview_image=preview,

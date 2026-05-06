@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from zoedepth.laser.click_mask import (
+from mopa.click_mask import (
     DEFAULT_CLICKER_KEY,
     DEFAULT_FLOOD_MAX_FRACTION,
     DEFAULT_FLOOD_TOLERANCE,

@@ -9,9 +9,9 @@ The full workflow:
     3. They feed that photo into :func:`calibration_lut_from_ramp_photo`,
        supply the deepest-step measured depth in microns (one calliper
        reading or the laser's quoted spec for that material/power), and
-       get back a :class:`zoedepth.laser.lut.CalibrationLUT` ready to drop
+       get back a :class:`mopa.lut.CalibrationLUT` ready to drop
        into a profile YAML via
-       :func:`zoedepth.laser.profiles.write_lut_to_profile`.
+       :func:`mopa.profiles.write_lut_to_profile`.
 
 This module never invents physics; it just converts a controlled
 photometric measurement into the empirical (gray → depth) sample list the

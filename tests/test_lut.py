@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from zoedepth.laser.lut import CalibrationLUT, lut_from_profile
+from mopa.lut import CalibrationLUT, lut_from_profile
 
 
 def _identity_samples(max_depth_um: float = 100.0):

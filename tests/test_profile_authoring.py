@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from zoedepth.laser.profiles import (
+from mopa.profiles import (
     ProfileValidationError,
     USER_PROFILES_ENV,
     load_profile,
@@ -14,8 +14,8 @@ from zoedepth.laser.profiles import (
     validate_profile,
     write_lut_to_profile,
 )
-from zoedepth.laser.service import DEFAULT_SETTINGS, merge_profile_settings
-from zoedepth.laser.lut import CalibrationLUT
+from mopa.service import DEFAULT_SETTINGS, merge_profile_settings
+from mopa.lut import CalibrationLUT
 
 
 @pytest.fixture

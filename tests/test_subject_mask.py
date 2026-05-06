@@ -1,12 +1,12 @@
-"""Tests for :mod:`zoedepth.laser.subject_mask`."""
+"""Tests for :mod:`mopa.subject_mask`."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from zoedepth.laser import subject_mask as sm
-from zoedepth.laser.subject_mask import (
+from mopa import subject_mask as sm
+from mopa.subject_mask import (
     DEFAULT_BACKGROUND_PLANE,
     DEFAULT_BINARY_THRESHOLD,
     DEFAULT_FEATHER_PX,

@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from zoedepth.laser.service import (
+from mopa.service import (
     DEFAULT_SETTINGS,
     ExportRequest,
     HeightmapService,
     merge_profile_settings,
 )
-from zoedepth.laser.settings import AppSettings
+from mopa.settings import AppSettings
 
 
 def _write_synthetic_heightmap(target, w=48, h=48):

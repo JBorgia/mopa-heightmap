@@ -111,16 +111,16 @@ pytest -q
 
 ```
 ui/mopa_studio.py  ─┐
-apps/zoe2lightburn ─┴─► HeightmapService ──► ZoeDepth (untouched)
+apps/mopa2lightburn ─┴─► HeightmapService ──► ZoeDepth (untouched)
                           │
                           └─► heightmap.process → exporter → atomic PNG + sidecar JSON
 ```
 
-- `zoedepth/laser/service.py` — single orchestrator. Owns the loaded model + a small depth cache. Same code path for CLI and UI.
-- `zoedepth/laser/heightmap.py` — Stage C post-processing (percentile clip → polarity → tone curve → smoothing → sharpen → dither).
-- `zoedepth/laser/exporter.py` — atomic writes (`*.tmp` → `os.replace`), three naming modes (`overwrite` | `timestamp` | `counter`), sidecar JSON.
-- `zoedepth/laser/profiles.py` — YAML profile loader + schema validator. User-scope dir + repo dir.
-- `zoedepth/laser/settings.py` — `~/.mopa-heightmap/settings.json` (output naming, preview cap, default model, device).
+- `mopa/service.py` — single orchestrator. Owns the loaded model + a small depth cache. Same code path for CLI and UI.
+- `mopa/heightmap.py` — Stage C post-processing (percentile clip → polarity → tone curve → smoothing → sharpen → dither).
+- `mopa/exporter.py` — atomic writes (`*.tmp` → `os.replace`), three naming modes (`overwrite` | `timestamp` | `counter`), sidecar JSON.
+- `mopa/profiles.py` — YAML profile loader + schema validator. User-scope dir + repo dir.
+- `mopa/settings.py` — `~/.mopa-heightmap/settings.json` (output naming, preview cap, default model, device).
 
 Read [`docs/PLAN.md`](docs/PLAN.md) for the full multi-pass / multi-layer / LightBurn-native export roadmap.
 
@@ -274,7 +274,7 @@ Image.fromarray(colored).save(fpath_colored)
 
 This fork now includes a focused export path for turning ZoeDepth predictions into LightBurn 3D Sliced-ready metal heightmaps without modifying the underlying model implementation.
 
-The main entrypoint is [apps/zoe2lightburn.py](apps/zoe2lightburn.py), which wraps the existing `infer_pil(...)` inference API and adds:
+The main entrypoint is [apps/mopa2lightburn.py](apps/mopa2lightburn.py), which wraps the existing `infer_pil(...)` inference API and adds:
 
 - percentile-based depth normalization
 - `black = deepest` or `white = deepest` export polarity
@@ -287,7 +287,7 @@ The main entrypoint is [apps/zoe2lightburn.py](apps/zoe2lightburn.py), which wra
 Example:
 
 ```bash
-python apps/zoe2lightburn.py input.jpg \
+python apps/mopa2lightburn.py input.jpg \
   --output out/coin_heightmap.png \
   --profile mopa_60w_brass \
   --near 5 \
@@ -313,7 +313,7 @@ out/
 To generate a standalone calibration ramp:
 
 ```bash
-python apps/zoe2lightburn.py --make-ramp out/mopa_256_ramp.png
+python apps/mopa2lightburn.py --make-ramp out/mopa_256_ramp.png
 ```
 
 Profiles live in [profiles/mopa_60w_brass.yaml](profiles/mopa_60w_brass.yaml), [profiles/mopa_60w_stainless.yaml](profiles/mopa_60w_stainless.yaml), [profiles/mopa_60w_aluminum.yaml](profiles/mopa_60w_aluminum.yaml), and [profiles/mopa_60w_copper.yaml](profiles/mopa_60w_copper.yaml).
