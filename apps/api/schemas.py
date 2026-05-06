@@ -188,12 +188,53 @@ class ProfileDetail(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Target-object presets (coin / signet_ring / pendant / plaque / portrait)
+# ---------------------------------------------------------------------------
+
+class TargetPresetSummary(BaseModel):
+    name: str
+    display_name: str
+    print_width_mm: float
+    print_height_mm: float
+    polarity_invert: bool
+    notes: str = ""
+
+
+# ---------------------------------------------------------------------------
 # Session WebSocket events
 # ---------------------------------------------------------------------------
 
 class WsEvent(BaseModel):
     event: str
     payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Sculptok auto-pull
+# ---------------------------------------------------------------------------
+
+class SculptokCreditsResponse(BaseModel):
+    """Reflects whether the server has a Sculptok API key configured and,
+    if so, the current credit balance."""
+
+    configured: bool
+    balance: Optional[int] = None
+    cost_pro_2k: int = 15
+    cost_pro_4k: int = 30
+    cost_normal: int = 10
+
+
+class SculptokGenerateRequest(BaseModel):
+    image_id: str
+    style: Literal["normal", "portrait", "sketch", "pro"] = "pro"
+    version: Literal["1.0", "1.5"] = "1.5"
+    draw_hd: Literal["2k", "4k"] = "2k"
+
+
+class SculptokGenerateResponse(BaseModel):
+    heightmap_path: str           # server-side filesystem path; passed back via settings.external_heightmap_path
+    credits_used: int
+    credits_remaining: int
 
 
 # ---------------------------------------------------------------------------

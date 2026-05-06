@@ -14,6 +14,10 @@ import {
   ProfileSummary,
   RenderRequest,
   RenderResponse,
+  SculptokCreditsResponse,
+  SculptokGenerateRequest,
+  SculptokGenerateResponse,
+  TargetPresetSummary,
   UploadResponse,
 } from './api-types';
 
@@ -63,5 +67,20 @@ export class ApiClientService {
 
   blobUrl(blobId: string): string {
     return `${API_BASE_URL}/blob/${blobId}`;
+  }
+
+  sculptokCredits(): Observable<SculptokCreditsResponse> {
+    return this.httpClient.get<SculptokCreditsResponse>(`${API_BASE_URL}/sculptok/credits`);
+  }
+
+  sculptokGenerate(request: SculptokGenerateRequest): Observable<SculptokGenerateResponse> {
+    return this.httpClient.post<SculptokGenerateResponse>(
+      `${API_BASE_URL}/sculptok/generate`,
+      request,
+    );
+  }
+
+  listTargets(): Observable<TargetPresetSummary[]> {
+    return this.httpClient.get<TargetPresetSummary[]>(`${API_BASE_URL}/targets`);
   }
 }

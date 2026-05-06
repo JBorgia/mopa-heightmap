@@ -10,6 +10,8 @@ import { ExportService } from '../../core/state/export.service';
 import { MaskService } from '../../core/state/mask.service';
 import { PlanService } from '../../core/state/plan.service';
 import { RenderService } from '../../core/state/render.service';
+import { SculptokService } from '../../core/state/sculptok.service';
+import { TargetService } from '../../core/state/target.service';
 import { SessionService } from '../../core/state/session.service';
 import { SessionTreeService } from '../../core/state/session-tree.service';
 import { MaskBackend } from '../../core/state/studio-state';
@@ -213,6 +215,54 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
               <p-accordion-header>{{ sectionTitles.heightmap }}</p-accordion-header>
               <p-accordion-content>
                 <div class="panel-body">
+                  <!-- Target preset -->
+                  <div class="field">
+                    <label for="hm-target">Target object</label>
+                    <select id="hm-target"
+                      [value]="targetService.active() ?? ''"
+                      (change)="onTargetChange($event)">
+                      <option value="">— pick a target —</option>
+                      @for (t of targetService.presets(); track t.name) {
+                        <option [value]="t.name" [selected]="t.name === targetService.active()">
+                          {{ t.display_name }} ({{ t.print_width_mm }}×{{ t.print_height_mm }} mm{{ t.polarity_invert ? ', invert' : '' }})
+                        </option>
+                      }
+                    </select>
+                  </div>
+
+                  <!-- Sculptok auto-pull -->
+                  <div class="field">
+                    <label>Heightmap source</label>
+                    @if (pipeline().settings.external_heightmap_path) {
+                      <p class="hint">
+                        Loaded: <code>{{ pipeline().settings.external_heightmap_path }}</code>
+                      </p>
+                    } @else {
+                      <p class="hint">No heightmap loaded yet — generate via Sculptok or render and the response will populate this field.</p>
+                    }
+                  </div>
+                  <div class="field">
+                    <div class="actions">
+                      <button type="button"
+                        [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight()"
+                        (click)="sculptokGenerate()">
+                        @if (sculptokService.inFlight()) { Sculptok generating… } @else { Generate via Sculptok }
+                      </button>
+                    </div>
+                    @if (sculptokService.credits(); as c) {
+                      @if (c.configured) {
+                        <p class="hint">
+                          Sculptok credits: {{ c.balance }} (each pro/2k call costs {{ c.cost_pro_2k }})
+                        </p>
+                      } @else {
+                        <p class="hint">
+                          Sculptok API key not configured on the server. Set <code>SCULPTOK_API_KEY</code> or
+                          add <code>credentials.sculptok_api_key</code> to <code>~/.mopa-heightmap/settings.json</code>.
+                        </p>
+                      }
+                    }
+                  </div>
+
                   <div class="field">
                     <label for="hm-polarity">Source polarity</label>
                     <select id="hm-polarity"
@@ -748,6 +798,8 @@ export class StudioShellComponent {
   protected readonly sessionTree = inject(SessionTreeService);
   protected readonly sessionService = inject(SessionService);
   protected readonly apiClient = inject(ApiClientService);
+  protected readonly sculptokService = inject(SculptokService);
+  protected readonly targetService = inject(TargetService);
   private readonly maskService = inject(MaskService);
   private readonly renderService = inject(RenderService);
   private readonly exportService = inject(ExportService);
@@ -761,6 +813,17 @@ export class StudioShellComponent {
 
   constructor() {
     this.sessionService.loadProfiles();
+    this.sculptokService.loadCredits();
+    this.targetService.loadPresets();
+  }
+
+  protected sculptokGenerate(): void {
+    this.sculptokService.generate();
+  }
+
+  protected onTargetChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    if (value) this.targetService.apply(value);
   }
 
   protected onFileSelected(event: Event): void {

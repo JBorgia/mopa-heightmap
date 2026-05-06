@@ -15,6 +15,10 @@ export type PassPlanResponse = components['schemas']['PassPlanResponse'];
 export type PassEntry = components['schemas']['PassEntry'];
 export type ProfileDetail = components['schemas']['ProfileDetail'];
 export type HeightmapSettings = components['schemas']['HeightmapSettings'];
+export type SculptokCreditsResponse = components['schemas']['SculptokCreditsResponse'];
+export type SculptokGenerateRequest = components['schemas']['SculptokGenerateRequest'];
+export type SculptokGenerateResponse = components['schemas']['SculptokGenerateResponse'];
+export type TargetPresetSummary = components['schemas']['TargetPresetSummary'];
 
 export interface ApiErrorEnvelope {
   error: {

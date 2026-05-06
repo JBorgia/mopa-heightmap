@@ -1,0 +1,16 @@
+name: portrait
+display_name: Portrait
+print_width_mm: 50.0
+print_height_mm: 65.0
+polarity_invert: false
+heightmap:
+  input_clahe: true
+  input_clahe_clip: 1.5
+  input_denoise: true
+  input_denoise_strength: 3.0
+  input_remove_specular: true
+  subject_mask_enabled: true
+notes: >-
+  Portrait preset — vertical 50 × 65 mm. Heavy pre-sculptok prep
+  (CLAHE + denoise + specular removal) because skin highlights and
+  noise hurt sculptok's depth output. Subject mask on.

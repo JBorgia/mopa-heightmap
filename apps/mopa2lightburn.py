@@ -46,6 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the bundle folder name (defaults to the input image's filename stem).",
     )
     parser.add_argument("--profile", help="Material profile name or YAML path")
+    parser.add_argument(
+        "--target",
+        help="Target-object preset (coin / signet_ring / pendant / plaque / portrait) "
+             "or path to a target YAML. Sets print dimensions, polarity-invert default, "
+             "and a starter heightmap-settings block.",
+    )
     parser.add_argument("--make-ramp", help="Write a standalone calibration ramp PNG and exit")
 
     # ----------------------------------------- heightmap source (one required)
@@ -324,8 +330,33 @@ def main() -> None:
     if args.profile:
         profile_data = load_profile(args.profile)
 
-    overrides = _heightmap_overrides(args)
-    settings = merge_profile_settings(profile_data, overrides)
+    # Target-object preset (optional). Layers in BEFORE explicit CLI
+    # overrides so user flags still win.
+    target = None
+    if args.target:
+        from mopa.target_presets import load_target_preset
+
+        target = load_target_preset(args.target)
+        target_overrides = dict(target.heightmap_overrides)
+        # Push polarity_invert into the heightmap settings block so
+        # merge_profile_settings sees it like any other key.
+        target_overrides.setdefault("polarity_invert", target.polarity_invert)
+        # Apply target overrides as the *base* layer; CLI flags override them.
+        cli_overrides = _heightmap_overrides(args)
+        # CLI args default to None when not set — drop those so the target
+        # preset's value survives.
+        cli_overrides = {k: v for k, v in cli_overrides.items() if v is not None}
+        # Use the profile + target as the base, then apply CLI on top.
+        settings = merge_profile_settings(profile_data, target_overrides)
+        settings = merge_profile_settings({"heightmap": settings}, cli_overrides)
+        # Print-size defaults from the target unless the user supplied them.
+        if args.print_width_mm is None:
+            args.print_width_mm = target.print_width_mm
+        if args.print_height_mm is None:
+            args.print_height_mm = target.print_height_mm
+    else:
+        overrides = _heightmap_overrides(args)
+        settings = merge_profile_settings(profile_data, overrides)
 
     # --use-sculptok auto-pull: configure the client up-front so we can
     # do a single balance check before burning any credits. Per-input

@@ -1,0 +1,14 @@
+name: signet_ring
+display_name: Signet ring (recessed)
+print_width_mm: 30.0
+print_height_mm: 25.0
+polarity_invert: true
+heightmap:
+  input_clahe: true
+  input_clahe_clip: 2.0
+  input_remove_specular: true
+  subject_mask_enabled: true
+notes: >-
+  Signet ring with recessed (intaglio) design. Polarity inverted so the
+  subject engraves deep and the background plane stays at surface.
+  ~30 × 25 mm matches a typical signet ring face.

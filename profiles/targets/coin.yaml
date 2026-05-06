@@ -1,0 +1,14 @@
+name: coin
+display_name: Coin / medal
+print_width_mm: 50.0
+print_height_mm: 50.0
+polarity_invert: false
+heightmap:
+  input_clahe: true
+  input_clahe_clip: 1.5
+  input_remove_specular: true
+  subject_mask_enabled: true
+notes: >-
+  Round coin / medal preset. 50 mm square print, light pre-sculptok prep
+  (CLAHE + specular removal), subject mask deliverable on. Polarity is
+  default (raised subject, recessed background).

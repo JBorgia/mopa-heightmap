@@ -1,0 +1,11 @@
+name: plaque
+display_name: Plaque
+print_width_mm: 80.0
+print_height_mm: 60.0
+polarity_invert: false
+heightmap:
+  input_clahe: true
+notes: >-
+  Rectangular plaque (80 × 60 mm). Larger workspace, full-frame subject
+  expected — subject mask off by default (the user often wants the
+  whole frame engraved as a scene).

@@ -188,6 +188,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sculptok/credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Credits */
+        get: operations["credits_sculptok_credits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sculptok/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate */
+        post: operations["generate_sculptok_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Targets */
+        get: operations["targets_targets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/upload": {
         parameters: {
             query?: never;
@@ -558,6 +609,82 @@ export interface components {
             /** Image Hash */
             image_hash: string;
         };
+        /**
+         * SculptokCreditsResponse
+         * @description Reflects whether the server has a Sculptok API key configured and,
+         *     if so, the current credit balance.
+         */
+        SculptokCreditsResponse: {
+            /** Configured */
+            configured: boolean;
+            /** Balance */
+            balance?: number | null;
+            /**
+             * Cost Pro 2K
+             * @default 15
+             */
+            cost_pro_2k: number;
+            /**
+             * Cost Pro 4K
+             * @default 30
+             */
+            cost_pro_4k: number;
+            /**
+             * Cost Normal
+             * @default 10
+             */
+            cost_normal: number;
+        };
+        /** SculptokGenerateRequest */
+        SculptokGenerateRequest: {
+            /** Image Id */
+            image_id: string;
+            /**
+             * Style
+             * @default pro
+             * @enum {string}
+             */
+            style: "normal" | "portrait" | "sketch" | "pro";
+            /**
+             * Version
+             * @default 1.5
+             * @enum {string}
+             */
+            version: "1.0" | "1.5";
+            /**
+             * Draw Hd
+             * @default 2k
+             * @enum {string}
+             */
+            draw_hd: "2k" | "4k";
+        };
+        /** SculptokGenerateResponse */
+        SculptokGenerateResponse: {
+            /** Heightmap Path */
+            heightmap_path: string;
+            /** Credits Used */
+            credits_used: number;
+            /** Credits Remaining */
+            credits_remaining: number;
+        };
+        /** TargetPresetSummary */
+        TargetPresetSummary: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name: string;
+            /** Print Width Mm */
+            print_width_mm: number;
+            /** Print Height Mm */
+            print_height_mm: number;
+            /** Polarity Invert */
+            polarity_invert: boolean;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+        };
         /** UploadResponse */
         UploadResponse: {
             /** Image Id */
@@ -896,6 +1023,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    credits_sculptok_credits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SculptokCreditsResponse"];
+                };
+            };
+        };
+    };
+    generate_sculptok_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SculptokGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SculptokGenerateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    targets_targets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetPresetSummary"][];
                 };
             };
         };

@@ -1,0 +1,12 @@
+name: pendant
+display_name: Pendant
+print_width_mm: 40.0
+print_height_mm: 50.0
+polarity_invert: false
+heightmap:
+  input_clahe: true
+  input_clahe_clip: 1.5
+  subject_mask_enabled: true
+notes: >-
+  Vertical pendant (40 × 50 mm). Subject mask on so the engraver leaves
+  the bezel area untouched.
