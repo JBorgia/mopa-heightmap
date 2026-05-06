@@ -11,25 +11,43 @@ export class RenderService {
   private readonly blobCache = inject(BlobCacheService);
   private readonly sessionTree = inject(SessionTreeService);
 
+  /**
+   * Generic settings patch — set a single ``HeightmapSettings`` field on
+   * the live state. UI controls bind to this so we don't proliferate
+   * one-shot setters per knob.
+   */
+  patchSettings<K extends keyof HeightmapSettings>(
+    key: K,
+    value: HeightmapSettings[K],
+  ): void {
+    this.sessionTree.patchState((current) => ({
+      ...current,
+      pipeline: {
+        ...current.pipeline,
+        settings: {
+          ...current.pipeline.settings,
+          [key]: value,
+        },
+      },
+    }));
+  }
+
   render(): void {
     const state = this.sessionTree.state();
     if (!state.session.imageId) {
       return;
     }
 
-    const { render } = state.pipeline;
+    const { render, settings } = state.pipeline;
 
     // Sculptok-only backend: depth comes from settings.external_heightmap_path
-    // (set by upload / sculptok auto-pull). Render forwards only fields the
-    // current backend accepts; everything else uses Pydantic defaults.
+    // (set by upload / sculptok auto-pull). The state's `settings` object
+    // mirrors HeightmapSettings 1:1, so we forward it verbatim.
     this.apiClient
       .render({
         image_id: state.session.imageId,
         profile_name: render.profileName ?? undefined,
-        settings: {
-          input_clahe: true,
-          input_clahe_clip: 3.0,
-        } as Partial<HeightmapSettings> as HeightmapSettings,
+        settings,
       })
       .subscribe({
         next: (response) => {

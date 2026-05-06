@@ -67,11 +67,23 @@ describe('RenderService', () => {
     expect(payload.image_id).toBe('img-001');
     // profileName is null in the default state -> profile_name is undefined.
     expect(payload.profile_name).toBeUndefined();
-    expect(payload.settings).toMatchObject({
-      input_clahe: true,
-    });
+    // settings comes straight from state.pipeline.settings — defaults match
+    // the backend's HeightmapSettings.
+    expect(payload.settings).toBe(treeMock._state.pipeline.settings);
     // No `inference` field in the new sculptok-only render contract.
     expect(payload).not.toHaveProperty('inference');
+  });
+
+  it('patchSettings updates a single field on pipeline.settings', () => {
+    service.patchSettings('input_clahe', true);
+    expect(treeMock.patchState).toHaveBeenCalledOnce();
+    const updater = treeMock.patchState.mock.calls[0][0];
+    const result = updater(treeMock._state);
+    expect(result.pipeline.settings.input_clahe).toBe(true);
+    // Other fields untouched.
+    expect(result.pipeline.settings.input_denoise).toBe(
+      treeMock._state.pipeline.settings.input_denoise,
+    );
   });
 
   it('render patches output and session after success', () => {

@@ -5,6 +5,7 @@ import { Accordion, AccordionContent, AccordionHeader, AccordionPanel } from 'pr
 import { Card } from 'primeng/card';
 
 import { ApiClientService } from '../../core/api/api-client.service';
+import type { HeightmapSettings } from '../../core/api/api-types';
 import { ExportService } from '../../core/state/export.service';
 import { MaskService } from '../../core/state/mask.service';
 import { PlanService } from '../../core/state/plan.service';
@@ -15,9 +16,25 @@ import { MaskBackend } from '../../core/state/studio-state';
 
 export const STUDIO_SECTION_TITLES = {
   mask: 'Mask',
+  input: 'Pre-sculptok input prep',
   render: 'Render',
+  heightmap: 'Heightmap',
+  refinement: 'Refinement passes',
   output: 'Output',
 } as const;
+
+export const SIGNATURE_CORNERS: { label: string; value: 'tl' | 'tr' | 'bl' | 'br' }[] = [
+  { label: 'Top left', value: 'tl' },
+  { label: 'Top right', value: 'tr' },
+  { label: 'Bottom left', value: 'bl' },
+  { label: 'Bottom right', value: 'br' },
+];
+
+export const HEIGHTMAP_POLARITIES: { label: string; value: 'bright_raised' | 'dark_raised' | 'auto' }[] = [
+  { label: 'Bright raised (sculptok / meshy)', value: 'bright_raised' },
+  { label: 'Dark raised', value: 'dark_raised' },
+  { label: 'Auto-detect from corners', value: 'auto' },
+];
 
 export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
   { label: 'BiRefNet (best quality)', value: 'birefnet' },
@@ -77,7 +94,7 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
             }
           </div>
 
-          <p-accordion [multiple]="true" [value]="['mask', 'render']">
+          <p-accordion [multiple]="true" [value]="['mask', 'render', 'refinement']">
             <!-- MASK panel -->
             <p-accordion-panel value="mask">
               <p-accordion-header>{{ sectionTitles.mask }}</p-accordion-header>
@@ -118,6 +135,49 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
               </p-accordion-content>
             </p-accordion-panel>
 
+            <!-- INPUT PREP panel -->
+            <p-accordion-panel value="input">
+              <p-accordion-header>{{ sectionTitles.input }}</p-accordion-header>
+              <p-accordion-content>
+                <div class="panel-body">
+                  <p class="hint">
+                    Cleans the photo before it reaches sculptok. Default off — turn on
+                    when the source is dim, blurry, or has heavy specular highlights.
+                  </p>
+                  <div class="field field-toggle">
+                    <label for="prep-wb">White balance</label>
+                    <input id="prep-wb" type="checkbox"
+                      [checked]="pipeline().settings.input_white_balance ?? false"
+                      (change)="onSettingToggle('input_white_balance', $event)" />
+                  </div>
+                  <div class="field field-toggle">
+                    <label for="prep-clahe">CLAHE contrast</label>
+                    <input id="prep-clahe" type="checkbox"
+                      [checked]="pipeline().settings.input_clahe ?? false"
+                      (change)="onSettingToggle('input_clahe', $event)" />
+                  </div>
+                  <div class="field field-toggle">
+                    <label for="prep-denoise">Denoise</label>
+                    <input id="prep-denoise" type="checkbox"
+                      [checked]="pipeline().settings.input_denoise ?? false"
+                      (change)="onSettingToggle('input_denoise', $event)" />
+                  </div>
+                  <div class="field field-toggle">
+                    <label for="prep-specular">Remove specular highlights</label>
+                    <input id="prep-specular" type="checkbox"
+                      [checked]="pipeline().settings.input_remove_specular ?? false"
+                      (change)="onSettingToggle('input_remove_specular', $event)" />
+                  </div>
+                  <div class="field">
+                    <label for="prep-max-dim">Max input dimension (0 = unlimited)</label>
+                    <input id="prep-max-dim" type="number" min="0" max="8192" step="64"
+                      [value]="pipeline().settings.input_max_dim ?? 0"
+                      (change)="onSettingNumber('input_max_dim', $event)" />
+                  </div>
+                </div>
+              </p-accordion-content>
+            </p-accordion-panel>
+
             <!-- RENDER panel -->
             <p-accordion-panel value="render">
               <p-accordion-header>{{ sectionTitles.render }}</p-accordion-header>
@@ -144,10 +204,118 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   @if (output().elapsedSeconds !== null) {
                     <p class="hint">Rendered in {{ output().elapsedSeconds | number:'1.1-1' }} s</p>
                   }
+                </div>
+              </p-accordion-content>
+            </p-accordion-panel>
+
+            <!-- HEIGHTMAP panel -->
+            <p-accordion-panel value="heightmap">
+              <p-accordion-header>{{ sectionTitles.heightmap }}</p-accordion-header>
+              <p-accordion-content>
+                <div class="panel-body">
+                  <div class="field">
+                    <label for="hm-polarity">Source polarity</label>
+                    <select id="hm-polarity"
+                      [value]="pipeline().settings.external_heightmap_polarity ?? 'bright_raised'"
+                      (change)="onSettingValue('external_heightmap_polarity', $event)">
+                      @for (opt of heightmapPolarities; track opt.value) {
+                        <option [value]="opt.value">{{ opt.label }}</option>
+                      }
+                    </select>
+                  </div>
+                  <div class="field field-toggle">
+                    <label for="hm-invert">Invert (signet ring / recessed)</label>
+                    <input id="hm-invert" type="checkbox"
+                      [checked]="pipeline().settings.polarity_invert ?? false"
+                      (change)="onSettingToggle('polarity_invert', $event)" />
+                  </div>
+                  <div class="field field-toggle">
+                    <label for="hm-bid">Black is deep</label>
+                    <input id="hm-bid" type="checkbox"
+                      [checked]="pipeline().settings.black_is_deep ?? true"
+                      (change)="onSettingToggle('black_is_deep', $event)" />
+                  </div>
+                  <div class="field">
+                    <label>Background value <span class="value-badge">{{ pipeline().settings.background_value | number:'1.2-2' }}</span></label>
+                    <input type="range" min="0" max="1" step="0.01"
+                      [value]="pipeline().settings.background_value ?? 1"
+                      (change)="onSettingNumber('background_value', $event)" />
+                  </div>
+                </div>
+              </p-accordion-content>
+            </p-accordion-panel>
+
+            <!-- REFINEMENT panel -->
+            <p-accordion-panel value="refinement">
+              <p-accordion-header>{{ sectionTitles.refinement }}</p-accordion-header>
+              <p-accordion-content>
+                <div class="panel-body">
                   <p class="hint">
-                    Heightmap comes from sculptok (auto-pull) or a supplied PNG —
-                    pre-sculptok input prep and per-pass refinement controls land here next.
+                    Refinement passes add separate physical features on top of the carved
+                    relief — they don't subdivide the depth budget.
                   </p>
+
+                  <div class="field field-toggle">
+                    <label for="ref-mask">Subject mask deliverable</label>
+                    <input id="ref-mask" type="checkbox"
+                      [checked]="pipeline().settings.subject_mask_enabled ?? false"
+                      (change)="onSettingToggle('subject_mask_enabled', $event)" />
+                  </div>
+
+                  <div class="field field-toggle">
+                    <label for="ref-preclean">Pre-clean pass</label>
+                    <input id="ref-preclean" type="checkbox"
+                      [checked]="pipeline().settings.pre_clean_enabled ?? false"
+                      (change)="onSettingToggle('pre_clean_enabled', $event)" />
+                  </div>
+
+                  <div class="field field-toggle">
+                    <label for="ref-tonal">Photo-tonal overlay</label>
+                    <input id="ref-tonal" type="checkbox"
+                      [checked]="pipeline().settings.photo_tonal_enabled ?? false"
+                      (change)="onSettingToggle('photo_tonal_enabled', $event)" />
+                  </div>
+                  @if (pipeline().settings.photo_tonal_enabled) {
+                    <div class="field field-indented">
+                      <label>Strength <span class="value-badge">{{ pipeline().settings.photo_tonal_strength | number:'1.2-2' }}</span></label>
+                      <input type="range" min="0" max="1" step="0.01"
+                        [value]="pipeline().settings.photo_tonal_strength ?? 0.7"
+                        (change)="onSettingNumber('photo_tonal_strength', $event)" />
+                    </div>
+                    <div class="field field-indented field-toggle">
+                      <label for="ref-tonal-invert">Invert (light = engrave)</label>
+                      <input id="ref-tonal-invert" type="checkbox"
+                        [checked]="pipeline().settings.photo_tonal_invert ?? false"
+                        (change)="onSettingToggle('photo_tonal_invert', $event)" />
+                    </div>
+                  }
+
+                  <div class="field">
+                    <label for="ref-sig-text">Signature text</label>
+                    <input id="ref-sig-text" type="text" maxlength="64"
+                      placeholder="e.g. JB 2026"
+                      [value]="pipeline().settings.signature_text ?? ''"
+                      (change)="onSettingValue('signature_text', $event)" />
+                  </div>
+                  @if (pipeline().settings.signature_text) {
+                    <div class="field field-indented">
+                      <label for="ref-sig-corner">Corner</label>
+                      <select id="ref-sig-corner"
+                        [value]="pipeline().settings.signature_corner ?? 'br'"
+                        (change)="onSettingValue('signature_corner', $event)">
+                        @for (opt of signatureCorners; track opt.value) {
+                          <option [value]="opt.value">{{ opt.label }}</option>
+                        }
+                      </select>
+                    </div>
+                  }
+
+                  <div class="field field-toggle">
+                    <label for="ref-dither">Output dither (8-bit collapse)</label>
+                    <input id="ref-dither" type="checkbox"
+                      [checked]="pipeline().settings.dither ?? false"
+                      (change)="onSettingToggle('dither', $event)" />
+                  </div>
                 </div>
               </p-accordion-content>
             </p-accordion-panel>
@@ -574,6 +742,8 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
 export class StudioShellComponent {
   protected readonly sectionTitles = STUDIO_SECTION_TITLES;
   protected readonly maskBackends = STUDIO_MASK_BACKENDS;
+  protected readonly heightmapPolarities = HEIGHTMAP_POLARITIES;
+  protected readonly signatureCorners = SIGNATURE_CORNERS;
 
   protected readonly sessionTree = inject(SessionTreeService);
   protected readonly sessionService = inject(SessionService);
@@ -621,6 +791,24 @@ export class StudioShellComponent {
 
   protected render(): void {
     this.renderService.render();
+  }
+
+  /** Generic toggle handler for boolean ``HeightmapSettings`` keys. */
+  protected onSettingToggle<K extends keyof HeightmapSettings>(key: K, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.renderService.patchSettings(key, checked as HeightmapSettings[K]);
+  }
+
+  /** Generic numeric handler (sliders, number inputs). */
+  protected onSettingNumber<K extends keyof HeightmapSettings>(key: K, event: Event): void {
+    const value = Number((event.target as HTMLInputElement).value);
+    this.renderService.patchSettings(key, value as HeightmapSettings[K]);
+  }
+
+  /** Generic string-or-enum handler (selects, text inputs). */
+  protected onSettingValue<K extends keyof HeightmapSettings>(key: K, event: Event): void {
+    const value = (event.target as HTMLInputElement | HTMLSelectElement).value;
+    this.renderService.patchSettings(key, value as HeightmapSettings[K]);
   }
 
   protected computePlan(): void {
