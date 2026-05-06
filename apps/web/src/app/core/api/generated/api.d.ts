@@ -147,7 +147,15 @@ export interface paths {
         /** List Profile Names Route */
         get: operations["list_profile_names_route_profiles_get"];
         put?: never;
-        post?: never;
+        /**
+         * Save Profile
+         * @description Persist the current settings as a user-scope profile.
+         *
+         *     Always writes to ``~/.mopa-heightmap/profiles/<name>.yaml`` (the
+         *     user-scope dir) so it never overwrites the shipped material cards.
+         *     Set ``overwrite=true`` to replace an existing user profile.
+         */
+        post: operations["save_profile_profiles_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -165,7 +173,14 @@ export interface paths {
         get: operations["get_profile_profiles__name__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Profile
+         * @description Delete a user-scope profile.
+         *
+         *     Refuses to delete shipped (built-in) profiles to keep the system
+         *     cards safe.
+         */
+        delete: operations["delete_profile_profiles__name__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -581,6 +596,34 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * ProfileSaveRequest
+         * @description POST /profiles body — save the current settings as a named profile.
+         *
+         *     The server merges any explicitly-supplied fields with sensible
+         *     defaults; in practice the UI just sends ``{name, settings}`` and
+         *     the server fills in machine / lightburn_mode / starting-point.
+         */
+        ProfileSaveRequest: {
+            /** Name */
+            name: string;
+            settings?: components["schemas"]["HeightmapSettings"];
+            /**
+             * Machine
+             * @default JPT MOPA fiber
+             */
+            machine: string;
+            /**
+             * Lightburn Mode
+             * @default 3D Sliced
+             */
+            lightburn_mode: string;
+            /**
+             * Overwrite
+             * @default false
+             */
+            overwrite: boolean;
+        };
         /** ProfileSummary */
         ProfileSummary: {
             /** Name */
@@ -963,6 +1006,39 @@ export interface operations {
             };
         };
     };
+    save_profile_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_profile_profiles__name__get: {
         parameters: {
             query?: never;
@@ -982,6 +1058,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProfileDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_profile_profiles__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -187,6 +187,21 @@ class ProfileDetail(BaseModel):
     data: Dict[str, Any]
 
 
+class ProfileSaveRequest(BaseModel):
+    """POST /profiles body — save the current settings as a named profile.
+
+    The server merges any explicitly-supplied fields with sensible
+    defaults; in practice the UI just sends ``{name, settings}`` and
+    the server fills in machine / lightburn_mode / starting-point.
+    """
+
+    name: str
+    settings: HeightmapSettings = Field(default_factory=HeightmapSettings)
+    machine: str = "JPT MOPA fiber"
+    lightburn_mode: str = "3D Sliced"
+    overwrite: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Target-object presets (coin / signet_ring / pendant / plaque / portrait)
 # ---------------------------------------------------------------------------

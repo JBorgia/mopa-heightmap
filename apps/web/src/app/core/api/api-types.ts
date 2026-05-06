@@ -19,6 +19,7 @@ export type SculptokCreditsResponse = components['schemas']['SculptokCreditsResp
 export type SculptokGenerateRequest = components['schemas']['SculptokGenerateRequest'];
 export type SculptokGenerateResponse = components['schemas']['SculptokGenerateResponse'];
 export type TargetPresetSummary = components['schemas']['TargetPresetSummary'];
+export type ProfileSaveRequest = components['schemas']['ProfileSaveRequest'];
 
 export interface ApiErrorEnvelope {
   error: {

@@ -203,6 +203,16 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       Render
                     </button>
                   </div>
+                  <div class="actions">
+                    <button type="button" class="secondary" (click)="onSaveProfile()">
+                      Save current settings as profile…
+                    </button>
+                    @if (pipeline().render.profileName) {
+                      <button type="button" class="secondary" (click)="onDeleteProfile()">
+                        Delete this profile
+                      </button>
+                    }
+                  </div>
                   @if (output().elapsedSeconds !== null) {
                     <p class="hint">Rendered in {{ output().elapsedSeconds | number:'1.1-1' }} s</p>
                   }
@@ -824,6 +834,22 @@ export class StudioShellComponent {
   protected onTargetChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     if (value) this.targetService.apply(value);
+  }
+
+  protected onSaveProfile(): void {
+    const suggested = this.pipeline().render.profileName ?? 'my-profile';
+    const name = window.prompt('Save current settings as profile (name):', suggested);
+    if (!name) return;
+    const overwrite = this.sessionService.profiles().some((p) => p.name === name);
+    if (overwrite && !window.confirm(`Profile "${name}" exists. Overwrite?`)) return;
+    this.sessionService.saveCurrentAsProfile(name.trim(), { overwrite });
+  }
+
+  protected onDeleteProfile(): void {
+    const name = this.pipeline().render.profileName;
+    if (!name) return;
+    if (!window.confirm(`Delete profile "${name}"? This only removes user-scope profiles; shipped profiles are protected.`)) return;
+    this.sessionService.deleteCurrentProfile();
   }
 
   protected onFileSelected(event: Event): void {

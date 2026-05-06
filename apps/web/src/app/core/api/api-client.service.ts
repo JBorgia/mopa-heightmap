@@ -11,6 +11,7 @@ import {
   MaskResponse,
   PassPlanRequest,
   PassPlanResponse,
+  ProfileSaveRequest,
   ProfileSummary,
   RenderRequest,
   RenderResponse,
@@ -82,5 +83,13 @@ export class ApiClientService {
 
   listTargets(): Observable<TargetPresetSummary[]> {
     return this.httpClient.get<TargetPresetSummary[]>(`${API_BASE_URL}/targets`);
+  }
+
+  saveProfile(request: ProfileSaveRequest): Observable<ProfileSummary> {
+    return this.httpClient.post<ProfileSummary>(`${API_BASE_URL}/profiles`, request);
+  }
+
+  deleteProfile(name: string): Observable<void> {
+    return this.httpClient.delete<void>(`${API_BASE_URL}/profiles/${encodeURIComponent(name)}`);
   }
 }

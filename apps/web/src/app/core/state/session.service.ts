@@ -85,4 +85,70 @@ export class SessionService {
     }));
     this.sessionTree.pushHistory(`profile:select:${profileName ?? 'none'}`);
   }
+
+  /** Persist the current ``pipeline.settings`` as a user-scope profile. */
+  saveCurrentAsProfile(name: string, opts: { overwrite?: boolean } = {}): void {
+    const settings = this.sessionTree.state().pipeline.settings;
+    this.apiClient
+      .saveProfile({
+        name,
+        settings,
+        overwrite: opts.overwrite ?? false,
+        machine: 'JPT MOPA fiber',
+        lightburn_mode: '3D Sliced',
+      })
+      .subscribe({
+        next: () => {
+          // Force a refresh so the new profile appears in the dropdown.
+          this.profilesLoaded.set(false);
+          this.loadProfiles();
+          this.setProfileName(name);
+          this.sessionTree.pushHistory(`profile:save:${name}`);
+          this.sessionTree.addToast({
+            id: crypto.randomUUID(),
+            severity: 'success',
+            summary: 'Profile saved',
+            detail: name,
+          });
+        },
+        error: (err) => {
+          const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
+          this.sessionTree.addToast({
+            id: crypto.randomUUID(),
+            severity: 'error',
+            summary: 'Save failed',
+            detail,
+          });
+        },
+      });
+  }
+
+  /** Delete a user-scope profile (shipped profiles are protected by the API). */
+  deleteCurrentProfile(): void {
+    const name = this.sessionTree.pipeline().render.profileName;
+    if (!name) return;
+    this.apiClient.deleteProfile(name).subscribe({
+      next: () => {
+        this.profilesLoaded.set(false);
+        this.loadProfiles();
+        this.setProfileName(null);
+        this.sessionTree.pushHistory(`profile:delete:${name}`);
+        this.sessionTree.addToast({
+          id: crypto.randomUUID(),
+          severity: 'success',
+          summary: 'Profile deleted',
+          detail: name,
+        });
+      },
+      error: (err) => {
+        const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
+        this.sessionTree.addToast({
+          id: crypto.randomUUID(),
+          severity: 'error',
+          summary: 'Delete failed',
+          detail,
+        });
+      },
+    });
+  }
 }
