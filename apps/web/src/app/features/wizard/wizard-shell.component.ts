@@ -11,6 +11,7 @@ import { ExportService } from '../../core/state/export.service';
 import { MaskService } from '../../core/state/mask.service';
 import { PlanService } from '../../core/state/plan.service';
 import { RenderService } from '../../core/state/render.service';
+import { SculptokService } from '../../core/state/sculptok.service';
 import { SessionService } from '../../core/state/session.service';
 import { SessionTreeService } from '../../core/state/session-tree.service';
 import { MaskBackend, ToastMessage } from '../../core/state/studio-state';
@@ -252,6 +253,37 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     </div>
                   </fieldset>
 
+                  <fieldset class="control-section">
+                    <legend>Heightmap source</legend>
+                    @if (pipeline().settings.external_heightmap_path) {
+                      <p class="muted">
+                        Loaded: <code>{{ pipeline().settings.external_heightmap_path }}</code>
+                      </p>
+                    }
+                    <div class="control-group">
+                      <button type="button"
+                        [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight()"
+                        (click)="sculptokGenerate()">
+                        @if (sculptokService.inFlight()) { Sculptok generating… } @else { Generate via Sculptok }
+                      </button>
+                      @if (sculptokService.credits(); as c) {
+                        @if (c.configured) {
+                          <p class="muted">Sculptok credits: {{ c.balance }}</p>
+                        } @else {
+                          <p class="muted">
+                            Sculptok API key not configured on the server.
+                          </p>
+                        }
+                      }
+                    </div>
+                    <div class="control-group">
+                      <label for="wiz-heightmap-upload">Or upload a heightmap PNG</label>
+                      <input id="wiz-heightmap-upload" type="file"
+                        accept="image/png,image/tiff"
+                        (change)="onHeightmapFileSelected($event)" />
+                    </div>
+                  </fieldset>
+
                   <div class="control-actions">
                     <button type="button"
                       [disabled]="!canRender()"
@@ -261,8 +293,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   </div>
                   @if (!pipeline().settings.external_heightmap_path && session().imageId) {
                     <p class="muted">
-                      Render needs a heightmap source. Generate one in the Studio's
-                      Heightmap panel (Generate via Sculptok) or supply your own PNG.
+                      Render needs a heightmap source — pick one above.
                     </p>
                   }
                   @if (output().elapsedSeconds !== null) {
@@ -760,6 +791,7 @@ export class WizardShellComponent {
   protected readonly maskBackends = WIZARD_MASK_BACKENDS;
   protected readonly sessionTree = inject(SessionTreeService);
   protected readonly sessionService = inject(SessionService);
+  protected readonly sculptokService = inject(SculptokService);
   private readonly apiClient = inject(ApiClientService);
   private readonly maskService = inject(MaskService);
   private readonly renderService = inject(RenderService);
@@ -777,6 +809,7 @@ export class WizardShellComponent {
 
   constructor() {
     this.sessionService.loadProfiles();
+    this.sculptokService.loadCredits();
   }
 
   protected blobUrl(id: string): string {
@@ -861,6 +894,18 @@ export class WizardShellComponent {
 
   protected renderPreview(): void {
     this.renderService.render();
+  }
+
+  protected sculptokGenerate(): void {
+    this.sculptokService.generate();
+  }
+
+  protected onHeightmapFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.item(0);
+    if (!file) return;
+    this.sculptokService.uploadHeightmap(file);
+    input.value = '';
   }
 
   /** Same gate as the Studio: image uploaded + heightmap source set. */

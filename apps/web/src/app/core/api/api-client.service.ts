@@ -7,6 +7,7 @@ import {
   ExportLbrn2Request,
   ExportPngRequest,
   ExportStlRequest,
+  HeightmapUploadResponse,
   MaskRequest,
   MaskResponse,
   PassPlanRequest,
@@ -32,6 +33,15 @@ export class ApiClientService {
     const formData = new FormData();
     formData.append('file', file, file.name);
     return this.httpClient.post<UploadResponse>(`${API_BASE_URL}/upload`, formData);
+  }
+
+  uploadHeightmap(file: File): Observable<HeightmapUploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.httpClient.post<HeightmapUploadResponse>(
+      `${API_BASE_URL}/upload/heightmap`,
+      formData,
+    );
   }
 
   listProfiles(): Observable<ProfileSummary[]> {

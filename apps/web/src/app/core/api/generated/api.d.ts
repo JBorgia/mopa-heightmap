@@ -271,6 +271,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/upload/heightmap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Heightmap */
+        post: operations["upload_heightmap_upload_heightmap_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -292,6 +309,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_upload_heightmap_upload_heightmap_post */
+        Body_upload_heightmap_upload_heightmap_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
+        };
         /** Body_upload_image_upload_post */
         Body_upload_image_upload_post: {
             /**
@@ -582,6 +607,19 @@ export interface components {
              * @default 0.6
              */
             signature_depth_fraction: number;
+        };
+        /**
+         * HeightmapUploadResponse
+         * @description Shape of POST /upload/heightmap. The path goes straight into
+         *     ``settings.external_heightmap_path`` for the next /render call.
+         */
+        HeightmapUploadResponse: {
+            /** Heightmap Path */
+            heightmap_path: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
         };
         /** MaskRequest */
         MaskRequest: {
@@ -1271,6 +1309,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_heightmap_upload_heightmap_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_heightmap_upload_heightmap_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeightmapUploadResponse"];
                 };
             };
             /** @description Validation Error */

@@ -31,6 +31,34 @@ export class SculptokService {
     });
   }
 
+  /** Upload a hand-supplied heightmap PNG; sets external_heightmap_path. */
+  uploadHeightmap(file: File): void {
+    this.inFlight.set(true);
+    this.apiClient.uploadHeightmap(file).subscribe({
+      next: (resp) => {
+        this.renderService.patchSettings('external_heightmap_path', resp.heightmap_path);
+        this.sessionTree.addToast({
+          id: crypto.randomUUID(),
+          severity: 'success',
+          summary: 'Heightmap uploaded',
+          detail: `${resp.width}×${resp.height} px`,
+        });
+        this.sessionTree.pushHistory('heightmap:upload');
+        this.inFlight.set(false);
+      },
+      error: (err) => {
+        const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
+        this.sessionTree.addToast({
+          id: crypto.randomUUID(),
+          severity: 'error',
+          summary: 'Heightmap upload failed',
+          detail,
+        });
+        this.inFlight.set(false);
+      },
+    });
+  }
+
   generate(opts: {
     style?: 'normal' | 'portrait' | 'sketch' | 'pro';
     version?: '1.0' | '1.5';

@@ -20,6 +20,7 @@ export type SculptokGenerateRequest = components['schemas']['SculptokGenerateReq
 export type SculptokGenerateResponse = components['schemas']['SculptokGenerateResponse'];
 export type TargetPresetSummary = components['schemas']['TargetPresetSummary'];
 export type ProfileSaveRequest = components['schemas']['ProfileSaveRequest'];
+export type HeightmapUploadResponse = components['schemas']['HeightmapUploadResponse'];
 
 export interface ApiErrorEnvelope {
   error: {

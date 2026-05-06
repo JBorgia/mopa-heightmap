@@ -348,6 +348,12 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         @if (sculptokService.inFlight()) { Sculptok generating… } @else { Generate via Sculptok }
                       </button>
                     </div>
+                    <div class="field">
+                      <label for="hm-upload">Or upload a heightmap PNG</label>
+                      <input id="hm-upload" type="file"
+                        accept="image/png,image/tiff"
+                        (change)="onHeightmapFileSelected($event)" />
+                    </div>
                     @if (sculptokService.credits(); as c) {
                       @if (c.configured) {
                         <p class="hint">
@@ -919,6 +925,14 @@ export class StudioShellComponent {
 
   protected sculptokGenerate(): void {
     this.sculptokService.generate();
+  }
+
+  protected onHeightmapFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.item(0);
+    if (!file) return;
+    this.sculptokService.uploadHeightmap(file);
+    input.value = '';
   }
 
   protected onTargetChange(event: Event): void {
