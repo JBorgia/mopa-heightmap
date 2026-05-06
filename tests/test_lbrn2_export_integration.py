@@ -128,21 +128,26 @@ def test_export_lbrn2_round_trips_through_card_loader(
             )
 
 
-def test_export_lbrn2_references_pngs_relatively(
+def test_export_lbrn2_embeds_bitmap_data(
     tmp_path: Path, service, settings_with_heightmap, synthetic_image,
 ):
-    """SourceFile attributes must be relative paths so the bundle stays portable."""
+    """LightBurn renders bitmaps from inline Data, not external SourceFile."""
     request = ExportRequest(
         output_dir=tmp_path,
-        base_stem="rel",
+        base_stem="embed",
         write_preview=False,
         write_lbrn2=True,
         write_pass_pngs=True,
     )
     bundle = service.export(synthetic_image, settings_with_heightmap, request)
     text = bundle.lbrn2_path.read_text(encoding="utf-8")
-    assert str(tmp_path.resolve()) not in text
-    assert "SourceFile=" in text
+    # Embedded base64 PNG.
+    assert "Data=" in text
+    assert "iVBOR" in text  # base64 prefix of a PNG header
+    # Project-level boilerplate that LightBurn requires to load layers.
+    assert "<Thumbnail" in text
+    assert "<VariableText>" in text
+    assert "<UIPrefs>" in text
 
 
 def test_export_without_lbrn2_skips_pass_stack(

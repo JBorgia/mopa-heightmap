@@ -30,12 +30,18 @@ as long as the user keeps the bundle directory together.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import io
 import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 from xml.dom import minidom
+
+import numpy as np
+from PIL import Image
 
 from .lightburn_cards import ColorEntry, MaterialProfile
 from .stages import EngravingPass, PassPlan
@@ -95,15 +101,26 @@ LBRN_IDENTITY_XFORM: tuple[float, float, float, float, float, float] = (
 class ShapeRef:
     """One shape attached to a LightBurn cut layer.
 
-    For raster passes ``shape_type`` is ``"Bitmap"`` and ``source_file`` is
-    the relative path to the per-pass PNG. For vector signature passes
-    ``shape_type`` is ``"Path"`` and ``source_file`` is the SVG path.
+    For raster passes ``shape_type`` is ``"Bitmap"`` and ``source_path``
+    points to the on-disk PNG (its bytes get embedded as base64 ``Data``
+    so LightBurn can render the layer without a separate file load).
+    For vector signature passes ``shape_type`` is ``"Path"`` and
+    ``source_file`` is the SVG path.
+
+    ``physical_width_mm`` / ``physical_height_mm`` set the bitmap's
+    on-bed size; the XForm scale is computed from these and the
+    bitmap's pixel dimensions so the printed image matches the
+    requested physical size exactly.
     """
 
     cut_index: int
     shape_type: str = "Bitmap"
     source_file: Optional[str] = None
+    source_path: Optional[Path] = None
     xform: tuple[float, float, float, float, float, float] = LBRN_IDENTITY_XFORM
+    physical_width_mm: Optional[float] = None
+    physical_height_mm: Optional[float] = None
+    embed_data: bool = False
 
 
 # ---------------------------------------------------------- value helpers
@@ -154,12 +171,128 @@ def _emit_cut_setting(parent: ET.Element, entry: ColorEntry) -> None:
 
 
 def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
+    """Emit a ``<Shape>`` element.
+
+    For bitmap shapes with ``embed_data=True`` and ``source_path`` set,
+    read the PNG, embed it as base64 ``Data`` (so LightBurn renders the
+    image without a separate file), set ``W``/``H`` from the requested
+    physical dimensions, and write the standard image-processing
+    defaults (Gamma=1, Contrast/Brightness/Enhance*=0). The XForm scale
+    is computed from physical-mm / pixel-count so the bitmap lands at
+    the requested on-bed size.
+    """
     attribs = {"Type": ref.shape_type, "CutIndex": str(ref.cut_index)}
-    if ref.source_file is not None:
+    xform = ref.xform
+
+    if ref.shape_type == "Bitmap" and ref.embed_data and ref.source_path is not None:
+        png_path = Path(ref.source_path)
+        png_bytes = png_path.read_bytes()
+        with Image.open(io.BytesIO(png_bytes)) as img:
+            px_w, px_h = img.size
+        # Resolve physical size (default: 50 mm on the longest side).
+        if ref.physical_width_mm and ref.physical_height_mm:
+            mm_w = float(ref.physical_width_mm)
+            mm_h = float(ref.physical_height_mm)
+        else:
+            longest = max(px_w, px_h)
+            scale = 50.0 / float(longest)
+            mm_w = float(ref.physical_width_mm or px_w * scale)
+            mm_h = float(ref.physical_height_mm or px_h * scale)
+        # XForm scale carries pixel→mm conversion.
+        sx = mm_w / float(px_w)
+        sy = mm_h / float(px_h)
+        xform = (sx, 0.0, 0.0, sy, 0.0, 0.0)
+        attribs.update({
+            "W": _fmt_float(mm_w),
+            "H": _fmt_float(mm_h),
+            "Gamma": "1",
+            "Contrast": "0",
+            "Brightness": "0",
+            "EnhanceAmount": "0",
+            "EnhanceRadius": "0",
+            "EnhanceDenoise": "0",
+            "File": str(png_path.resolve()),
+            "SourceHash": _source_hash(png_bytes),
+            "Data": base64.b64encode(png_bytes).decode("ascii"),
+        })
+    elif ref.source_file is not None:
+        # Bitmap shape without embedded data — keep the relative SourceFile
+        # for our own round-trip parsing. LightBurn typically won't render
+        # this case.
         attribs["SourceFile"] = ref.source_file
+
     shape = ET.SubElement(parent, "Shape", attribs)
     xf = ET.SubElement(shape, "XForm")
-    xf.text = " ".join(repr(v) for v in ref.xform)
+    xf.text = " ".join(_fmt_float(v) for v in xform)
+
+
+def _fmt_float(v: float) -> str:
+    """Format a float the way LightBurn does — trim trailing zeros."""
+    if float(v).is_integer():
+        return str(int(v))
+    return repr(float(v))
+
+
+def _source_hash(data: bytes) -> str:
+    """Short integer hash for the SourceHash attribute (matches etcher's pattern)."""
+    return str(int(hashlib.md5(data).hexdigest()[:6], 16) % 100)
+
+
+# --------------------------------------------------- project boilerplate
+
+def _emit_project_boilerplate(
+    parent: ET.Element,
+    *,
+    thumbnail_b64: Optional[str] = None,
+) -> None:
+    """Emit the standard <Thumbnail>/<VariableText>/<UIPrefs> blocks.
+
+    LightBurn's project parser drops layers when these are missing.
+    Values match the ones the user's source 60W card ships with so the
+    project loads with sensible defaults.
+    """
+    if thumbnail_b64:
+        ET.SubElement(parent, "Thumbnail", {"Source": thumbnail_b64})
+
+    vt = ET.SubElement(parent, "VariableText")
+    for tag, val in (
+        ("Start", "0"),
+        ("End", "999"),
+        ("Current", "0"),
+        ("Increment", "1"),
+        ("AutoAdvance", "0"),
+    ):
+        ET.SubElement(vt, tag, {"Value": val})
+
+    ui = ET.SubElement(parent, "UIPrefs")
+    for tag, val in (
+        ("Optimize_ByLayer", "0"),
+        ("Optimize_ByGroup", "-1"),
+        ("Optimize_ByPriority", "1"),
+        ("Optimize_WhichDirection", "0"),
+        ("Optimize_InnerToOuter", "1"),
+        ("Optimize_ByDirection", "0"),
+        ("Optimize_ReduceTravel", "1"),
+        ("Optimize_HideBacklash", "0"),
+        ("Optimize_ReduceDirChanges", "0"),
+        ("Optimize_ChooseCorners", "0"),
+        ("Optimize_AllowReverse", "1"),
+        ("Optimize_RemoveOverlaps", "0"),
+        ("Optimize_OptimalEntryPoint", "0"),
+    ):
+        ET.SubElement(ui, tag, {"Value": val})
+
+
+def make_thumbnail_b64(heightmap: np.ndarray, max_side: int = 256) -> str:
+    """Render a small base64 PNG thumbnail of ``heightmap`` for the project header."""
+    arr = np.clip(heightmap.astype(np.float32, copy=False), 0.0, 1.0)
+    img = Image.fromarray(
+        (arr * 255.0 + 0.5).astype(np.uint8), mode="L",
+    ).convert("RGB")
+    img.thumbnail((max_side, max_side), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 # --------------------------------------------------------------- builder
@@ -172,8 +305,15 @@ def build_lbrn_tree(
     material_height: float = LBRN_DEFAULT_MATERIAL_HEIGHT,
     mirror_x: bool = False,
     mirror_y: bool = False,
+    thumbnail_b64: Optional[str] = None,
 ) -> ET.ElementTree:
-    """Construct the in-memory ``ElementTree`` for a LightBurn project."""
+    """Construct the in-memory ``ElementTree`` for a LightBurn project.
+
+    ``thumbnail_b64`` should be a base64-encoded PNG (e.g. produced by
+    :func:`make_thumbnail_b64`). When omitted, the ``<Thumbnail>`` block
+    is skipped — but LightBurn loads layers more reliably with one
+    present, so callers should normally supply it.
+    """
     seen: set[int] = set()
     for e in entries:
         if e.index in seen:
@@ -192,11 +332,12 @@ def build_lbrn_tree(
         {
             "AppVersion": app_version,
             "FormatVersion": LBRN_FORMAT_VERSION,
-            "MaterialHeight": repr(float(material_height)),
+            "MaterialHeight": _fmt_float(material_height),
             "MirrorX": "True" if mirror_x else LBRN_DEFAULT_MIRROR_X,
             "MirrorY": "True" if mirror_y else LBRN_DEFAULT_MIRROR_Y,
         },
     )
+    _emit_project_boilerplate(root, thumbnail_b64=thumbnail_b64)
     for entry in sorted(entries, key=lambda e: e.index):
         _emit_cut_setting(root, entry)
     for shape in shapes:
@@ -216,13 +357,25 @@ def write_lbrn(
     mirror_x: Optional[bool] = None,
     mirror_y: Optional[bool] = None,
     extra_entries: Iterable[ColorEntry] = (),
+    print_width_mm: Optional[float] = None,
+    print_height_mm: Optional[float] = None,
+    thumbnail_b64: Optional[str] = None,
 ) -> Path:
     """Write a ``.lbrn2`` file to ``output_path`` from a :class:`PassPlan`.
 
     ``pass_pngs`` maps ``EngravingPass.id`` to the on-disk PNG to embed as
-    that pass's bitmap shape. Missing entries omit the ``SourceFile``
-    attribute (LightBurn will load the layer empty, which is what we want
-    for vector / signature passes).
+    that pass's bitmap shape. The PNG bytes are base64-encoded into the
+    Shape's ``Data`` attribute so LightBurn renders the bitmap without a
+    separate file load. Missing entries emit the shape as a Path
+    placeholder (LightBurn loads it empty for vector signature passes).
+
+    ``print_width_mm`` / ``print_height_mm`` set every Bitmap shape's
+    on-bed physical size. When omitted, defaults to 50 mm on the longest
+    side, preserving aspect ratio.
+
+    ``thumbnail_b64`` should be a base64-encoded PNG preview (use
+    :func:`make_thumbnail_b64`). LightBurn loads layers more reliably
+    with one present.
 
     ``extra_entries`` lets callers append unused-but-known cut settings
     (e.g. the rest of the material card) so users can re-enable them inside
@@ -249,6 +402,10 @@ def write_lbrn(
             cut_index=ep.cut_setting.index,
             shape_type="Bitmap" if png is not None else "Path",
             source_file=rel,
+            source_path=Path(png) if png is not None else None,
+            embed_data=png is not None,
+            physical_width_mm=print_width_mm,
+            physical_height_mm=print_height_mm,
         ))
     for entry in extra_entries:
         used.setdefault(entry.index, entry)
@@ -264,6 +421,7 @@ def write_lbrn(
         ),
         mirror_x=False if mirror_x is None else bool(mirror_x),
         mirror_y=False if mirror_y is None else bool(mirror_y),
+        thumbnail_b64=thumbnail_b64,
     )
     # Pretty-print so the file diffs cleanly when committed alongside outputs.
     xml_bytes = ET.tostring(tree.getroot(), encoding="utf-8")

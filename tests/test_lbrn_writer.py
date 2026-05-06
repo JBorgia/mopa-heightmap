@@ -7,10 +7,12 @@ verbatim.
 """
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from zoedepth.laser.lbrn_writer import (
     LBRN_DEFAULT_APP_VERSION,
@@ -23,6 +25,13 @@ from zoedepth.laser.lbrn_writer import (
     build_lbrn_tree,
     write_lbrn,
 )
+
+
+def _write_tiny_png(path: Path, w: int = 8, h: int = 8) -> Path:
+    """Write a minimal valid PNG so the writer can read its dimensions."""
+    arr = np.zeros((h, w), dtype=np.uint8)
+    Image.fromarray(arr, mode="L").save(path)
+    return path
 from zoedepth.laser.lightburn_cards import (
     DEFAULT_CARDS_DIR,
     DEFAULT_PROFILE_NAME,
@@ -94,10 +103,8 @@ def test_build_lbrn_tree_sets_root_attribs():
 def test_write_lbrn_round_trips_through_parser(tmp_path: Path):
     profile = _profile()
     plan = plan_passes(heightmap=_heightmap(), profile=profile)
-    # Fake per-pass PNG paths just to exercise the SourceFile encoding.
-    pngs = {p.id: tmp_path / f"{p.id}.png" for p in plan.passes}
-    for png in pngs.values():
-        png.write_bytes(b"\x89PNG\r\n\x1a\n")  # minimal PNG header
+    # Real tiny PNGs so the writer can read their dimensions for embedding.
+    pngs = {p.id: _write_tiny_png(tmp_path / f"{p.id}.png") for p in plan.passes}
     out = tmp_path / "project.lbrn2"
     write_lbrn(out, plan, pass_pngs=pngs)
     reparsed = load_lightburn_card(out)
@@ -141,15 +148,35 @@ def test_write_lbrn_appends_extra_entries(tmp_path: Path):
     assert set(reparsed.by_index.keys()) == expected
 
 
-def test_write_lbrn_uses_relative_png_paths(tmp_path: Path):
+def test_write_lbrn_embeds_bitmap_data(tmp_path: Path):
+    """Bitmap shapes must carry the PNG bytes inline so LightBurn renders them."""
     profile = _profile()
     plan = plan_passes(heightmap=_heightmap(), profile=profile)
-    png = tmp_path / "form.png"
-    png.write_bytes(b"\x89PNG\r\n\x1a\n")
+    png = _write_tiny_png(tmp_path / "form.png")
     out = tmp_path / "deep" / "project.lbrn2"
     write_lbrn(out, plan, pass_pngs={PASS_KIND_FORM: png})
     text = out.read_text(encoding="utf-8")
-    # The bitmap shape must reference the PNG by path relative to the
-    # project file, not by absolute path (so the bundle stays portable).
-    assert "form.png" in text
-    assert str(tmp_path) not in text or text.count(str(tmp_path)) == 0
+    # The Data attribute carries the base64-encoded PNG; without it the
+    # LightBurn project loads but renders nothing in the workspace.
+    assert "Data=" in text
+    # iVBOR is the base64 prefix for the standard PNG header.
+    assert "iVBOR" in text
+    # W/H attributes set the bitmap's physical size in mm.
+    assert 'W="' in text and 'H="' in text
+
+
+def test_write_lbrn_includes_project_boilerplate(tmp_path: Path):
+    """Thumbnail/VariableText/UIPrefs blocks are required for LightBurn to load layers."""
+    profile = _profile()
+    plan = plan_passes(heightmap=_heightmap(), profile=profile)
+    out = tmp_path / "project.lbrn2"
+    write_lbrn(
+        out, plan,
+        pass_pngs={PASS_KIND_FORM: _write_tiny_png(tmp_path / "form.png")},
+        thumbnail_b64="iVBOR-fake-base64-for-test",
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "<Thumbnail" in text
+    assert "<VariableText>" in text
+    assert "<UIPrefs>" in text
+    assert "Optimize_ByLayer" in text

@@ -487,7 +487,7 @@ class HeightmapService:
         """
         from .burn_time import estimate_burn_time, format_seconds
         from .color_quantize import color_masks_for_planner, quantize_to_color_masks
-        from .lbrn_writer import write_clb, write_lbrn
+        from .lbrn_writer import make_thumbnail_b64, write_clb, write_lbrn
         from .lightburn_cards import DEFAULT_CARDS_DIR, DEFAULT_PROFILE_NAME, load_lightburn_card
         from .signature import render_text_signature_mask
         from .stages import (
@@ -624,23 +624,10 @@ class HeightmapService:
             )
             pngs[ep.id] = png_path
 
-        lbrn2_path: Path | None = None
-        if request.write_lbrn2:
-            lbrn2_path = final_dir / "project.lbrn2"
-            write_lbrn(
-                lbrn2_path,
-                plan,
-                pass_pngs=pngs if request.write_pass_pngs else None,
-                app_version=material.app_version,
-            )
-
-        clb_path: Path | None = None
-        if request.write_clb:
-            clb_path = final_dir / "cut-library.clb"
-            entries = list({ep.cut_setting.index: ep.cut_setting for ep in plan.passes}.values())
-            write_clb(clb_path, entries)
-
-        # 6. Burn-time estimate.
+        # Resolve physical print dimensions: defaults to 50 mm on the
+        # longest heightmap dimension, preserving aspect ratio. Used by
+        # both the .lbrn2 Bitmap shapes (so they land at the right size
+        # when LightBurn opens the project) and the burn-time estimator.
         h, w = heightmap.shape
         if request.print_width_mm and request.print_height_mm:
             width_mm = float(request.print_width_mm)
@@ -650,6 +637,29 @@ class HeightmapService:
             scale = 50.0 / float(longest)
             width_mm = float(request.print_width_mm or w * scale)
             height_mm = float(request.print_height_mm or h * scale)
+
+        lbrn2_path: Path | None = None
+        if request.write_lbrn2:
+            lbrn2_path = final_dir / "project.lbrn2"
+            # Always embed the bitmap data — LightBurn renders bitmaps
+            # from the Data attribute, not the SourceFile reference.
+            write_lbrn(
+                lbrn2_path,
+                plan,
+                pass_pngs=pngs,
+                app_version=material.app_version,
+                print_width_mm=width_mm,
+                print_height_mm=height_mm,
+                thumbnail_b64=make_thumbnail_b64(heightmap),
+            )
+
+        clb_path: Path | None = None
+        if request.write_clb:
+            clb_path = final_dir / "cut-library.clb"
+            entries = list({ep.cut_setting.index: ep.cut_setting for ep in plan.passes}.values())
+            write_clb(clb_path, entries)
+
+        # 6. Burn-time estimate.
         estimate = estimate_burn_time(plan, width_mm=width_mm, height_mm=height_mm)
         burn_estimate = {
             "width_mm": estimate.width_mm,
