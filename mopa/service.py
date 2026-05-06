@@ -53,6 +53,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "input_remove_specular": False,
     "input_specular_threshold": 245,
     "input_max_dim": 0,
+    "input_auto_orient_face": False,
+    "input_auto_crop": False,
+    # Aspect ratio (width / height) the auto-crop should target. 0 = use
+    # the photo's existing aspect (no crop). When --target is set, the
+    # CLI overrides this from the target preset's print dimensions.
+    "input_auto_crop_aspect": 0.0,
+    "input_auto_crop_prefer_face": True,
 
     # External heightmap source — required. The CLI/API arranges the
     # sculptok download and sets this path before calling render().
@@ -233,6 +240,28 @@ class HeightmapService:
         if "max_dim" in cond_payload and cond_payload["max_dim"] is not None:
             cond_payload["max_input_dim"] = cond_payload.pop("max_dim")
         conditioned = condition_input(image, settings_from_mapping(cond_payload))
+
+        # Auto-orient face (rotate so the eye line is horizontal).
+        # No-op when no face is detected or mediapipe is unavailable.
+        if bool(settings.get("input_auto_orient_face", False)):
+            from .imgproc.auto_orient import auto_orient_to_face
+
+            conditioned, _angle = auto_orient_to_face(conditioned)
+
+        # Auto-crop to the requested aspect ratio. Uses face detection
+        # when ``input_auto_crop_prefer_face=True`` (default), falling
+        # back to spectral-residual saliency, then to centre crop.
+        if bool(settings.get("input_auto_crop", False)):
+            aspect = float(settings.get("input_auto_crop_aspect", 0.0) or 0.0)
+            if aspect > 0.0:
+                from .imgproc.auto_crop import auto_crop_to_aspect
+
+                conditioned, _strategy = auto_crop_to_aspect(
+                    conditioned,
+                    target_aspect=aspect,
+                    prefer_face=bool(settings.get("input_auto_crop_prefer_face", True)),
+                )
+
         image_hash = _hash_pil(conditioned)
 
         # Subject mask — needed early when a procedural background is

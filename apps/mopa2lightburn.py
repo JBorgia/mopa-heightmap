@@ -186,6 +186,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--remove-specular", dest="input_remove_specular", action="store_true", default=None)
     parser.add_argument("--specular-threshold", dest="input_specular_threshold", type=int, default=None)
     parser.add_argument("--max-input-dim", dest="input_max_dim", type=int, default=None)
+    parser.add_argument("--auto-orient", dest="input_auto_orient_face", action="store_true", default=None,
+                        help="Rotate the photo so the inter-pupillary line is level (Haar cascade; no-op if no face)")
+    parser.add_argument("--auto-crop", dest="input_auto_crop", action="store_true", default=None,
+                        help="Crop to --target aspect (or --auto-crop-aspect) using face / saliency / centre fallback")
+    parser.add_argument("--auto-crop-aspect", dest="input_auto_crop_aspect", type=float, default=None,
+                        help="Width/height ratio for --auto-crop. Defaults to the --target preset aspect when set.")
+    parser.add_argument("--auto-crop-no-face", dest="input_auto_crop_prefer_face", action="store_false", default=None,
+                        help="Use saliency-only crop instead of preferring face detection.")
+
+    # ------------------------------------------- background pattern (pre-sculptok)
+    parser.add_argument("--background", dest="background_pattern",
+                        choices=["none", "guilloche", "stripes", "dots", "halftone", "checkers"],
+                        default=None,
+                        help="Procedural background pattern composited over the masked-out background.")
+    parser.add_argument("--background-scale", dest="background_scale", type=float, default=None)
+    parser.add_argument("--background-angle", dest="background_angle", type=float, default=None)
+    parser.add_argument("--background-seed", dest="background_seed", type=int, default=None)
+    parser.add_argument("--background-intensity", dest="background_intensity", type=float, default=None)
 
     # ------------------------------------------- subject mask deliverable
     parser.add_argument("--subject-mask", dest="subject_mask_enabled", action="store_true", default=None)
@@ -341,6 +359,13 @@ def main() -> None:
         # Push polarity_invert into the heightmap settings block so
         # merge_profile_settings sees it like any other key.
         target_overrides.setdefault("polarity_invert", target.polarity_invert)
+        # Default the auto-crop aspect to the target's print aspect ratio
+        # so ``--target portrait --auto-crop`` does the right thing.
+        if target.print_height_mm > 0:
+            target_overrides.setdefault(
+                "input_auto_crop_aspect",
+                target.print_width_mm / target.print_height_mm,
+            )
         # Apply target overrides as the *base* layer; CLI flags override them.
         cli_overrides = _heightmap_overrides(args)
         # CLI args default to None when not set — drop those so the target

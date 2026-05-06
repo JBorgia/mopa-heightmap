@@ -29,6 +29,10 @@ class HeightmapSettings(BaseModel):
     input_remove_specular: bool = False
     input_specular_threshold: int = Field(245, ge=128, le=255)
     input_max_dim: int = Field(0, ge=0, le=8192)
+    input_auto_orient_face: bool = False
+    input_auto_crop: bool = False
+    input_auto_crop_aspect: float = Field(0.0, ge=0.0, le=10.0)
+    input_auto_crop_prefer_face: bool = True
 
     # External heightmap source (required at render time).
     external_heightmap_path: str = ""

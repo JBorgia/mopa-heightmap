@@ -186,6 +186,26 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       [value]="pipeline().settings.input_max_dim"
                       (change)="onSettingNumber('input_max_dim', $event)" />
                   </div>
+                  <div class="field field-toggle">
+                    <label for="prep-auto-orient">Auto-orient face (eye-line level)</label>
+                    <input id="prep-auto-orient" type="checkbox"
+                      [checked]="pipeline().settings.input_auto_orient_face"
+                      (change)="onSettingToggle('input_auto_orient_face', $event)" />
+                  </div>
+                  <div class="field field-toggle">
+                    <label for="prep-auto-crop">Auto-crop to target aspect</label>
+                    <input id="prep-auto-crop" type="checkbox"
+                      [checked]="pipeline().settings.input_auto_crop"
+                      (change)="onSettingToggle('input_auto_crop', $event)" />
+                  </div>
+                  @if (pipeline().settings.input_auto_crop) {
+                    <div class="field field-indented">
+                      <label for="prep-auto-crop-aspect">Crop aspect (W/H, 0 = use target)</label>
+                      <input id="prep-auto-crop-aspect" type="number" min="0" max="10" step="0.05"
+                        [value]="pipeline().settings.input_auto_crop_aspect"
+                        (change)="onSettingNumber('input_auto_crop_aspect', $event)" />
+                    </div>
+                  }
                 </div>
               </p-accordion-content>
             </p-accordion-panel>

@@ -113,6 +113,10 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   input_remove_specular: false,
   input_specular_threshold: 245,
   input_max_dim: 0,
+  input_auto_orient_face: false,
+  input_auto_crop: false,
+  input_auto_crop_aspect: 0.0,
+  input_auto_crop_prefer_face: true,
 
   // External heightmap source. Set by upload / sculptok auto-pull,
   // not directly editable in the UI.

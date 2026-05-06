@@ -37,11 +37,18 @@ export class TargetService {
     // The preset's full heightmap-overrides block isn't on the summary
     // (kept off the wire to avoid duplicating defaults). The CLI applies
     // those server-side; in the UI we apply just the high-signal fields:
-    // polarity_invert and a sensible per-target subject mask default.
+    // polarity_invert, a sensible per-target subject mask default, and
+    // the print-aspect ratio so auto-crop "just works" once enabled.
     if (preset.name === 'plaque') {
       this.renderService.patchSettings('subject_mask_enabled', false);
     } else {
       this.renderService.patchSettings('subject_mask_enabled', true);
+    }
+    if (preset.print_height_mm > 0) {
+      this.renderService.patchSettings(
+        'input_auto_crop_aspect',
+        preset.print_width_mm / preset.print_height_mm,
+      );
     }
     this.active.set(name);
     this.sessionTree.pushHistory(`target:apply:${name}`);

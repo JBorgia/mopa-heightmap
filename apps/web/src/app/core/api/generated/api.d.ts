@@ -420,6 +420,26 @@ export interface components {
              */
             input_max_dim: number;
             /**
+             * Input Auto Orient Face
+             * @default false
+             */
+            input_auto_orient_face: boolean;
+            /**
+             * Input Auto Crop
+             * @default false
+             */
+            input_auto_crop: boolean;
+            /**
+             * Input Auto Crop Aspect
+             * @default 0
+             */
+            input_auto_crop_aspect: number;
+            /**
+             * Input Auto Crop Prefer Face
+             * @default true
+             */
+            input_auto_crop_prefer_face: boolean;
+            /**
              * External Heightmap Path
              * @default
              */
