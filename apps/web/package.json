@@ -3,7 +3,9 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start": "concurrently -k -n api,web -c blue,green \"pnpm:start:api\" \"pnpm:start:web\"",
+    "start:api": "cd ..\\.. && .venv\\Scripts\\python.exe -m uvicorn apps.api.main:app --reload --port 8000",
+    "start:web": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
@@ -47,6 +49,7 @@
     "@playwright/test": "^1.59.1",
     "@types/jest": "^30.0.0",
     "@vitest/coverage-v8": "^4.1.5",
+    "concurrently": "^9.2.1",
     "jest": "^30.3.0",
     "jest-preset-angular": "^16.1.4",
     "jsdom": "^28.0.0",
