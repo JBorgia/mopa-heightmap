@@ -128,6 +128,14 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   subject_mask_feather_px: 3,
   subject_mask_threshold: 0.5,
 
+  // Procedural background pattern (composited onto the photo's
+  // background pixels before the heightmap is loaded).
+  background_pattern: 'none',
+  background_scale: 1.0,
+  background_angle: 0.0,
+  background_seed: 0,
+  background_intensity: 0.6,
+
   // LightBurn 3D Sliced polarity.
   black_is_deep: true,
   background_value: 1.0,

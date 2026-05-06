@@ -456,6 +456,32 @@ export interface components {
              */
             subject_mask_threshold: number;
             /**
+             * Background Pattern
+             * @default none
+             * @enum {string}
+             */
+            background_pattern: "none" | "guilloche" | "stripes" | "dots" | "halftone" | "checkers";
+            /**
+             * Background Scale
+             * @default 1
+             */
+            background_scale: number;
+            /**
+             * Background Angle
+             * @default 0
+             */
+            background_angle: number;
+            /**
+             * Background Seed
+             * @default 0
+             */
+            background_seed: number;
+            /**
+             * Background Intensity
+             * @default 0.6
+             */
+            background_intensity: number;
+            /**
              * Black Is Deep
              * @default true
              */

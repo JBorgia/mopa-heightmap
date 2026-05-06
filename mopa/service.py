@@ -74,6 +74,19 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "subject_mask_feather_px": 3,
     "subject_mask_threshold": 0.5,
 
+    # Procedural background pattern composited over the photo's
+    # background pixels (where subject_alpha < 0.5) BEFORE the
+    # heightmap is loaded. ``"none"`` disables; other values
+    # (``guilloche``, ``stripes``, ``dots``, ``halftone``,
+    # ``checkers``) trigger the background-replace flow which only
+    # affects the preview / photo_tonal pass — sculptok's depth
+    # heightmap is still the source of truth for relief.
+    "background_pattern": "none",
+    "background_scale": 1.0,
+    "background_angle": 0.0,
+    "background_seed": 0,
+    "background_intensity": 0.6,
+
     # LightBurn 3D Sliced convention: gray=255 (white) is no engraving,
     # gray=0 (black) is the deepest cut. Sculptok output already follows
     # this. Kept as an explicit setting so callers and previews can
@@ -222,6 +235,25 @@ class HeightmapService:
         conditioned = condition_input(image, settings_from_mapping(cond_payload))
         image_hash = _hash_pil(conditioned)
 
+        # Subject mask — needed early when a procedural background is
+        # being composited (the BG only fills the *background* pixels;
+        # we need the silhouette to know which those are). Otherwise
+        # computed below as a deliverable-only artifact.
+        subject_alpha: np.ndarray | None = None
+        if bool(settings.get("subject_mask_enabled", False)):
+            subject_alpha = self._compute_subject_mask(conditioned, image_hash, settings)
+
+        # Background-pattern composite — paint the procedural pattern
+        # over the photo's background pixels BEFORE we move on. Keeps
+        # the photo_tonal / color_quantize stages downstream consistent
+        # with what the user sees in the preview.
+        bg_name = str(settings.get("background_pattern", "none") or "none")
+        if bg_name != "none" and subject_alpha is not None:
+            conditioned = self._composite_background(conditioned, subject_alpha, settings)
+            # The composited photo has a different content fingerprint;
+            # rehash so caches downstream don't conflate the two states.
+            image_hash = _hash_pil(conditioned)
+
         # Heightmap source — must be supplied. Sculptok auto-pull writes
         # a temp file and sets this path; users with their own heightmap
         # set it directly.
@@ -250,13 +282,6 @@ class HeightmapService:
         if bool(settings.get("polarity_invert", False)):
             heightmap = (1.0 - heightmap).astype(np.float32)
 
-        # Subject mask — separate deliverable, NOT applied to heightmap.
-        # Used by the pass planner (color quantisation, photo-tonal
-        # gating) and shipped as mask.png in the bundle.
-        subject_alpha: np.ndarray | None = None
-        if bool(settings.get("subject_mask_enabled", False)):
-            subject_alpha = self._compute_subject_mask(conditioned, image_hash, settings)
-
         preview = render_preview(heightmap)
         elapsed = time.perf_counter() - start
         return PreviewResult(
@@ -267,6 +292,61 @@ class HeightmapService:
             image_hash=image_hash,
             subject_alpha=subject_alpha,
         )
+
+    # ------------------------------------------------------- background fill
+    def _composite_background(
+        self,
+        photo: Image.Image,
+        subject_alpha: np.ndarray,
+        settings: Mapping[str, Any],
+    ) -> Image.Image:
+        """Fill the photo's background pixels with a procedural pattern.
+
+        ``subject_alpha`` is a ``(H, W)`` float32 mask in ``[0, 1]`` —
+        1 = subject (keep photo), 0 = background (fill with pattern).
+        Pattern intensity is scaled by ``background_intensity`` (the
+        rest stays the photo's original mean grey so the composite
+        still looks like a continuous image to sculptok).
+        """
+        from .backgrounds import generate_pattern
+
+        pattern_name = str(settings.get("background_pattern", "none") or "none")
+        if pattern_name == "none":
+            return photo
+
+        photo_arr = np.asarray(photo.convert("RGB"), dtype=np.float32) / 255.0
+        h, w = photo_arr.shape[:2]
+        if subject_alpha.shape != (h, w):
+            alpha_pil = Image.fromarray(
+                (np.clip(subject_alpha, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8),
+                mode="L",
+            ).resize((w, h), Image.BILINEAR)
+            subject_alpha = np.asarray(alpha_pil, dtype=np.float32) / 255.0
+
+        try:
+            pattern = generate_pattern(
+                pattern_name, w, h,
+                scale=float(settings.get("background_scale", 1.0)),
+                angle=float(settings.get("background_angle", 0.0)),
+                seed=int(settings.get("background_seed", 0)),
+            )
+        except KeyError:
+            return photo  # unknown pattern name — leave the photo alone
+
+        intensity = float(np.clip(settings.get("background_intensity", 0.6), 0.0, 1.0))
+        # Map the pattern from [0, 1] to a luminance value around the
+        # photo's existing background mean — keeps the composite from
+        # looking blown out / clipped.
+        bg_mask = subject_alpha < 0.5
+        if bg_mask.any():
+            base = float(photo_arr[bg_mask].mean()) if bg_mask.any() else 0.5
+            pattern_luma = (pattern * intensity + (1.0 - intensity) * base)[..., None]
+            pattern_rgb = np.broadcast_to(pattern_luma, photo_arr.shape).astype(np.float32)
+            blend = subject_alpha[..., None]
+            composited = photo_arr * blend + pattern_rgb * (1.0 - blend)
+            composited = np.clip(composited * 255.0 + 0.5, 0, 255).astype(np.uint8)
+            return Image.fromarray(composited, mode="RGB")
+        return photo
 
     # --------------------------------------------------------- subject mask
     def _get_masker(self, backend: str):

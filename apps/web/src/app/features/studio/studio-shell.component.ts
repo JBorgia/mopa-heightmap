@@ -19,11 +19,21 @@ import { MaskBackend } from '../../core/state/studio-state';
 export const STUDIO_SECTION_TITLES = {
   mask: 'Mask',
   input: 'Pre-sculptok input prep',
+  background: 'Background pattern',
   render: 'Render',
   heightmap: 'Heightmap',
   refinement: 'Refinement passes',
   output: 'Output',
 } as const;
+
+export const BACKGROUND_PATTERNS: { label: string; value: 'none' | 'guilloche' | 'stripes' | 'dots' | 'halftone' | 'checkers' }[] = [
+  { label: '— none —', value: 'none' },
+  { label: 'Guilloché', value: 'guilloche' },
+  { label: 'Stripes', value: 'stripes' },
+  { label: 'Dots', value: 'dots' },
+  { label: 'Halftone', value: 'halftone' },
+  { label: 'Checkers', value: 'checkers' },
+];
 
 export const SIGNATURE_CORNERS: { label: string; value: 'tl' | 'tr' | 'bl' | 'br' }[] = [
   { label: 'Top left', value: 'tl' },
@@ -176,6 +186,56 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       [value]="pipeline().settings.input_max_dim"
                       (change)="onSettingNumber('input_max_dim', $event)" />
                   </div>
+                </div>
+              </p-accordion-content>
+            </p-accordion-panel>
+
+            <!-- BACKGROUND PATTERN panel -->
+            <p-accordion-panel value="background">
+              <p-accordion-header>{{ sectionTitles.background }}</p-accordion-header>
+              <p-accordion-content>
+                <div class="panel-body">
+                  <p class="hint">
+                    Composites a procedural pattern over the photo's background pixels
+                    BEFORE sculptok sees it. Requires the subject mask to be enabled
+                    (in the Mask panel) so we know which pixels are background.
+                  </p>
+                  <div class="field">
+                    <label for="bg-pattern">Pattern</label>
+                    <select id="bg-pattern"
+                      [value]="pipeline().settings.background_pattern"
+                      (change)="onSettingValue('background_pattern', $event)">
+                      @for (opt of backgroundPatterns; track opt.value) {
+                        <option [value]="opt.value">{{ opt.label }}</option>
+                      }
+                    </select>
+                  </div>
+                  @if (pipeline().settings.background_pattern !== 'none') {
+                    <div class="field">
+                      <label>Scale <span class="value-badge">{{ pipeline().settings.background_scale | number:'1.2-2' }}</span></label>
+                      <input type="range" min="0.25" max="4" step="0.05"
+                        [value]="pipeline().settings.background_scale"
+                        (change)="onSettingNumber('background_scale', $event)" />
+                    </div>
+                    <div class="field">
+                      <label>Angle <span class="value-badge">{{ pipeline().settings.background_angle | number:'1.0-0' }}°</span></label>
+                      <input type="range" min="-90" max="90" step="1"
+                        [value]="pipeline().settings.background_angle"
+                        (change)="onSettingNumber('background_angle', $event)" />
+                    </div>
+                    <div class="field">
+                      <label>Intensity <span class="value-badge">{{ pipeline().settings.background_intensity | number:'1.2-2' }}</span></label>
+                      <input type="range" min="0" max="1" step="0.01"
+                        [value]="pipeline().settings.background_intensity"
+                        (change)="onSettingNumber('background_intensity', $event)" />
+                    </div>
+                    <div class="field">
+                      <label for="bg-seed">Seed</label>
+                      <input id="bg-seed" type="number" min="0" max="2147483647" step="1"
+                        [value]="pipeline().settings.background_seed"
+                        (change)="onSettingNumber('background_seed', $event)" />
+                    </div>
+                  }
                 </div>
               </p-accordion-content>
             </p-accordion-panel>
@@ -804,6 +864,7 @@ export class StudioShellComponent {
   protected readonly maskBackends = STUDIO_MASK_BACKENDS;
   protected readonly heightmapPolarities = HEIGHTMAP_POLARITIES;
   protected readonly signatureCorners = SIGNATURE_CORNERS;
+  protected readonly backgroundPatterns = BACKGROUND_PATTERNS;
 
   protected readonly sessionTree = inject(SessionTreeService);
   protected readonly sessionService = inject(SessionService);

@@ -45,6 +45,15 @@ class HeightmapSettings(BaseModel):
     subject_mask_feather_px: int = Field(3, ge=0, le=64)
     subject_mask_threshold: float = Field(0.5, ge=0.0, le=1.0)
 
+    # Procedural background generator — composites a pattern over the
+    # photo's background pixels (where the subject mask is 0) BEFORE
+    # the photo is sent to sculptok. ``"none"`` disables.
+    background_pattern: Literal["none", "guilloche", "stripes", "dots", "halftone", "checkers"] = "none"
+    background_scale: float = Field(1.0, ge=0.05, le=20.0)
+    background_angle: float = Field(0.0, ge=-180.0, le=180.0)
+    background_seed: int = Field(0, ge=0, le=2_147_483_647)
+    background_intensity: float = Field(0.6, ge=0.0, le=1.0)
+
     # LightBurn 3D Sliced polarity convention.
     black_is_deep: bool = True
     background_value: float = Field(1.0, ge=0.0, le=1.0)
