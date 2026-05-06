@@ -19,5 +19,9 @@ async def render(req: RenderRequest) -> RenderResponse:
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        # User-input problems (no heightmap path / file missing / invalid
+        # settings) — 422 is the right HTTP code, not 500.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc

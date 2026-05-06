@@ -253,10 +253,18 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   </fieldset>
 
                   <div class="control-actions">
-                    <button type="button" [disabled]="!session().imageId" (click)="renderPreview()">
+                    <button type="button"
+                      [disabled]="!canRender()"
+                      (click)="renderPreview()">
                       Render preview
                     </button>
                   </div>
+                  @if (!pipeline().settings.external_heightmap_path && session().imageId) {
+                    <p class="muted">
+                      Render needs a heightmap source. Generate one in the Studio's
+                      Heightmap panel (Generate via Sculptok) or supply your own PNG.
+                    </p>
+                  }
                   @if (output().elapsedSeconds !== null) {
                     <p class="muted">Rendered in {{ output().elapsedSeconds | number: '1.2-2' }} s</p>
                   }
@@ -853,6 +861,14 @@ export class WizardShellComponent {
 
   protected renderPreview(): void {
     this.renderService.render();
+  }
+
+  /** Same gate as the Studio: image uploaded + heightmap source set. */
+  protected canRender(): boolean {
+    const state = this.sessionTree.state();
+    return Boolean(
+      state.session.imageId && state.pipeline.settings.external_heightmap_path,
+    );
   }
 
   protected computePlan(): void {

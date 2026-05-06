@@ -279,10 +279,19 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     </select>
                   </div>
                   <div class="actions">
-                    <button type="button" [disabled]="!session().imageId" (click)="render()">
+                    <button type="button"
+                      [disabled]="!canRender()"
+                      (click)="render()">
                       Render
                     </button>
                   </div>
+                  @if (!pipeline().settings.external_heightmap_path && session().imageId) {
+                    <p class="hint">
+                      Render needs a heightmap source. Open the <strong>Heightmap</strong>
+                      panel and either click <strong>Generate via Sculptok</strong> or
+                      drop a heightmap PNG path into the source field.
+                    </p>
+                  }
                   <div class="actions">
                     <button type="button" class="secondary" (click)="onSaveProfile()">
                       Save current settings as profile…
@@ -961,6 +970,15 @@ export class StudioShellComponent {
 
   protected render(): void {
     this.renderService.render();
+  }
+
+  /**
+   * Render is allowed when an image is uploaded AND a heightmap source
+   * is configured (sculptok-generated or user-supplied).
+   */
+  protected canRender(): boolean {
+    const state = this.sessionTree.state();
+    return Boolean(state.session.imageId && state.pipeline.settings.external_heightmap_path);
   }
 
   /** Generic toggle handler for boolean ``HeightmapSettings`` keys. */
