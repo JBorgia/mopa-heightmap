@@ -141,33 +141,66 @@ def _set_value(parent: ET.Element, tag: str, value) -> None:
         child.set("Value", str(value))
 
 
-def _emit_cut_setting(parent: ET.Element, entry: ColorEntry) -> None:
-    """Append a ``<CutSetting type="Scan">`` block built verbatim from ``entry``.
+def _emit_cut_setting(
+    parent: ET.Element,
+    entry: ColorEntry,
+    *,
+    image_mode: bool = False,
+    image_pass_count: int = 256,
+    image_negative: bool = False,
+    image_dpi: int = 1270,
+) -> None:
+    """Append a ``<CutSetting type="Scan">`` (vector) or
+    ``<CutSetting_Img type="Image">`` (raster, including 3D Slice) block.
 
-    We prefer the raw payload captured at parse time so any fields we don't
-    explicitly model (tabCount, priority2, etc.) round-trip unchanged.
+    LightBurn uses two separate XML tag names for the two cut-setting
+    flavours. Image-mode passes (the depth bitmap, photo-tonal, color
+    anneal) need ``<CutSetting_Img>`` plus 3D-Slice-specific children
+    (``ditherMode``, ``numPasses``, ``negative``, ``dpi``) so LightBurn
+    opens them in the correct mode. Vector passes (signature text,
+    cut-lines) use the original ``<CutSetting type="Scan">``.
     """
-    cs = ET.SubElement(parent, "CutSetting", {"type": entry.cut_type})
+    if image_mode:
+        cs = ET.SubElement(parent, "CutSetting_Img", {"type": "Image"})
+    else:
+        cs = ET.SubElement(parent, "CutSetting", {"type": entry.cut_type})
+
     if entry.raw:
         for tag, raw in entry.raw.items():
             child = ET.SubElement(cs, tag)
             child.set("Value", raw)
-        return
-    # Fallback: synthesise from typed fields when raw is unavailable
-    # (programmatically constructed entries).
-    _set_value(cs, "index", entry.index)
-    _set_value(cs, "name", entry.name)
-    _set_value(cs, "maxPower", entry.max_power)
-    _set_value(cs, "speed", entry.speed)
-    _set_value(cs, "frequency", entry.frequency)
-    _set_value(cs, "QPulseWidth", entry.q_pulse_width)
-    _set_value(cs, "interval", entry.interval)
-    _set_value(cs, "minPower", entry.min_power)
-    _set_value(cs, "maxPower2", entry.max_power_2)
-    _set_value(cs, "priority", entry.priority)
-    _set_value(cs, "floodFill", entry.flood_fill)
-    if entry.bidir is not None:
-        _set_value(cs, "bidir", entry.bidir)
+    else:
+        # Fallback: synthesise from typed fields.
+        _set_value(cs, "index", entry.index)
+        _set_value(cs, "name", entry.name)
+        _set_value(cs, "maxPower", entry.max_power)
+        _set_value(cs, "speed", entry.speed)
+        _set_value(cs, "frequency", entry.frequency)
+        _set_value(cs, "QPulseWidth", entry.q_pulse_width)
+        _set_value(cs, "interval", entry.interval)
+        _set_value(cs, "minPower", entry.min_power)
+        _set_value(cs, "maxPower2", entry.max_power_2)
+        _set_value(cs, "priority", entry.priority)
+        _set_value(cs, "floodFill", entry.flood_fill)
+        if entry.bidir is not None:
+            _set_value(cs, "bidir", entry.bidir)
+
+    if image_mode:
+        # 3D-Slice children. ``ditherMode="3dslice"`` is the magic value
+        # that makes LightBurn open the layer in 3D Slice mode without a
+        # manual click. ``negative`` matches sculptok's bright_raised
+        # polarity to LightBurn's "black is deep" convention (default 0).
+        # If the cut already had a numPasses field via raw, we leave it.
+        if not (entry.raw and "numPasses" in entry.raw):
+            ET.SubElement(cs, "numPasses").set("Value", str(int(image_pass_count)))
+        if not (entry.raw and "ditherMode" in entry.raw):
+            ET.SubElement(cs, "ditherMode").set("Value", "3dslice")
+        if not (entry.raw and "negative" in entry.raw):
+            ET.SubElement(cs, "negative").set("Value", "1" if image_negative else "0")
+        if not (entry.raw and "subname" in entry.raw):
+            ET.SubElement(cs, "subname").set("Value", "3D Slice")
+        if not (entry.raw and "dpi" in entry.raw):
+            ET.SubElement(cs, "dpi").set("Value", str(int(image_dpi)))
 
 
 def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
@@ -198,10 +231,13 @@ def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
             scale = 50.0 / float(longest)
             mm_w = float(ref.physical_width_mm or px_w * scale)
             mm_h = float(ref.physical_height_mm or px_h * scale)
-        # XForm scale carries pixel→mm conversion.
+        # XForm scale: pixel -> mm. Y is negated and translated up by
+        # mm_h because LightBurn's workspace is Y-up while image rows
+        # run top-to-bottom; without the flip the bitmap renders
+        # upside-down.
         sx = mm_w / float(px_w)
         sy = mm_h / float(px_h)
-        xform = (sx, 0.0, 0.0, sy, 0.0, 0.0)
+        xform = (sx, 0.0, 0.0, -sy, 0.0, mm_h)
         attribs.update({
             "W": _fmt_float(mm_w),
             "H": _fmt_float(mm_h),
@@ -215,11 +251,6 @@ def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
             "SourceHash": _source_hash(png_bytes),
             "Data": base64.b64encode(png_bytes).decode("ascii"),
         })
-    elif ref.source_file is not None:
-        # Bitmap shape without embedded data — keep the relative SourceFile
-        # for our own round-trip parsing. LightBurn typically won't render
-        # this case.
-        attribs["SourceFile"] = ref.source_file
 
     shape = ET.SubElement(parent, "Shape", attribs)
     xf = ET.SubElement(shape, "XForm")
@@ -306,6 +337,9 @@ def build_lbrn_tree(
     mirror_x: bool = False,
     mirror_y: bool = False,
     thumbnail_b64: Optional[str] = None,
+    image_pass_count: int = 256,
+    image_negative: bool = False,
+    image_dpi: int = 1270,
 ) -> ET.ElementTree:
     """Construct the in-memory ``ElementTree`` for a LightBurn project.
 
@@ -338,8 +372,18 @@ def build_lbrn_tree(
         },
     )
     _emit_project_boilerplate(root, thumbnail_b64=thumbnail_b64)
+    # An entry is emitted in image-mode when any shape attached to it is a
+    # Bitmap (the .lbrn2's depth pass and color/photo-tonal passes). Vector
+    # shapes (Path / Text / future signature) keep the Scan-style emit.
+    image_indices = {s.cut_index for s in shapes if s.shape_type == "Bitmap"}
     for entry in sorted(entries, key=lambda e: e.index):
-        _emit_cut_setting(root, entry)
+        _emit_cut_setting(
+            root, entry,
+            image_mode=entry.index in image_indices,
+            image_pass_count=image_pass_count,
+            image_negative=image_negative,
+            image_dpi=image_dpi,
+        )
     for shape in shapes:
         _emit_shape(root, shape)
     return ET.ElementTree(root)
@@ -360,6 +404,9 @@ def write_lbrn(
     print_width_mm: Optional[float] = None,
     print_height_mm: Optional[float] = None,
     thumbnail_b64: Optional[str] = None,
+    image_pass_count: int = 256,
+    image_negative: bool = False,
+    image_dpi: int = 1270,
 ) -> Path:
     """Write a ``.lbrn2`` file to ``output_path`` from a :class:`PassPlan`.
 
@@ -422,6 +469,9 @@ def write_lbrn(
         mirror_x=False if mirror_x is None else bool(mirror_x),
         mirror_y=False if mirror_y is None else bool(mirror_y),
         thumbnail_b64=thumbnail_b64,
+        image_pass_count=image_pass_count,
+        image_negative=image_negative,
+        image_dpi=image_dpi,
     )
     # Pretty-print so the file diffs cleanly when committed alongside outputs.
     xml_bytes = ET.tostring(tree.getroot(), encoding="utf-8")

@@ -111,12 +111,14 @@ def _value_of(elem: Optional[ET.Element]) -> Optional[str]:
 
 
 def _parse_cut_setting(node: ET.Element) -> Optional[ColorEntry]:
-    """Convert one ``<CutSetting>`` element into a :class:`ColorEntry`.
+    """Convert one cut-setting element into a :class:`ColorEntry`.
 
-    Returns ``None`` for non-Scan cut settings (Cut, Image etc.) which the
-    color-card schema is not expected to contain but which we politely ignore.
+    Accepts both ``<CutSetting type="Scan">`` (vector) and
+    ``<CutSetting_Img type="Image">`` (raster, including 3D Slice).
+    Returns ``None`` for cut-setting variants we don't model (Cut, etc.).
     """
-    if node.attrib.get("type") not in (None, "Scan"):
+    cut_type = node.attrib.get("type")
+    if cut_type not in (None, "Scan", "Image"):
         return None
 
     raw: Dict[str, str] = {}
@@ -133,11 +135,14 @@ def _parse_cut_setting(node: ET.Element) -> Optional[ColorEntry]:
         max_power = float(raw["maxPower"])
         speed = float(raw["speed"])
         frequency = int(float(raw["frequency"]))
-        q_pulse_width = int(float(raw["QPulseWidth"]))
         interval = float(raw["interval"])
     except KeyError as exc:
         missing = exc.args[0]
         raise ValueError(f"<CutSetting> missing required field {missing!r}") from None
+    # QPulseWidth is required for Scan cuts (vector engraving) but absent
+    # in Image-mode cuts (the raster image-mode 3D Slice / threshold /
+    # dither layers don't expose Q-pulse separately).
+    q_pulse_width = int(float(raw.get("QPulseWidth", 0)))
 
     def _opt_float(key: str) -> Optional[float]:
         v = raw.get(key)
@@ -196,7 +201,11 @@ def load_lightburn_card(path: Path) -> MaterialProfile:
 
     entries: List[ColorEntry] = []
     seen_indices: set[int] = set()
-    for node in root.findall("CutSetting"):
+    # LightBurn uses two tag names: <CutSetting type="Scan"> for vector
+    # cuts and <CutSetting_Img type="Image"> for raster image cuts
+    # (including 3D Slice). Both feed the same MaterialProfile.
+    cut_nodes = list(root.findall("CutSetting")) + list(root.findall("CutSetting_Img"))
+    for node in cut_nodes:
         try:
             entry = _parse_cut_setting(node)
         except ValueError as exc:
