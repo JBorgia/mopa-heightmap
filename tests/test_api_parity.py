@@ -196,6 +196,102 @@ def test_export_png_8bit(client, uploaded_image_id):
     assert resp.status_code == 200
 
 
+def test_export_stl_returns_binary_mesh(client, uploaded_image_id):
+    """Regression for the numpy-stl ``Mode`` import path.
+
+    The library moved ``Mode`` from ``stl.mesh.Mode`` to top-level ``stl.Mode``;
+    referencing the old path raises AttributeError at runtime and turns the
+    export into HTTP 500. This test exercises the real export route end to end
+    so a future Pillow / numpy-stl bump can't break it silently.
+    """
+    render_resp = client.post("/render", json={"image_id": uploaded_image_id})
+    hid = render_resp.json()["heightmap_id"]
+    # 8-pixel mesh keeps the test under a second; the real product can ship
+    # multi-million-triangle meshes but that's not what we're verifying here.
+    resp = client.post(
+        "/export/stl",
+        json={"heightmap_id": hid, "z_scale_mm": 1.0, "base_thickness_mm": 0.5},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "model/stl"
+    assert resp.headers["content-disposition"].endswith("filename=heightmap.stl")
+    assert len(resp.content) > 0
+
+
+def test_render_response_includes_conditioned_and_render_mask_fields(client, uploaded_image_id):
+    """The wizard preview pane reads conditioned_id / render_mask_id off the
+    /render response. These fields must be present (Optional[str]); absence
+    breaks the OpenAPI contract."""
+    resp = client.post("/render", json={"image_id": uploaded_image_id})
+    body = resp.json()
+    assert "conditioned_id" in body
+    assert "render_mask_id" in body
+
+
+def test_export_bundle_zips_selected_formats(client, uploaded_image_id):
+    """Wizard's Submit action: bundle PNG + STL into a single zip the user
+    downloads in one click. Skip .lbrn2 here — that path exercises the
+    pass-plan flow which the stub doesn't drive."""
+    import zipfile
+    import io as _io
+
+    render_resp = client.post("/render", json={"image_id": uploaded_image_id})
+    hid = render_resp.json()["heightmap_id"]
+    resp = client.post(
+        "/export/bundle",
+        json={
+            "heightmap_id": hid,
+            "include_png": True,
+            "include_lbrn2": False,
+            "include_stl": True,
+            "z_scale_mm": 1.0,
+            "base_thickness_mm": 0.5,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/zip"
+    assert "mopa_export.zip" in resp.headers["content-disposition"]
+    zf = zipfile.ZipFile(_io.BytesIO(resp.content))
+    names = set(zf.namelist())
+    assert "heightmap.png" in names
+    assert "heightmap.stl" in names
+
+
+def test_export_bundle_rejects_empty_selection(client, uploaded_image_id):
+    """Submitting nothing is a 422 — server can't build an empty bundle."""
+    render_resp = client.post("/render", json={"image_id": uploaded_image_id})
+    hid = render_resp.json()["heightmap_id"]
+    resp = client.post(
+        "/export/bundle",
+        json={
+            "heightmap_id": hid,
+            "include_png": False,
+            "include_lbrn2": False,
+            "include_stl": False,
+        },
+    )
+    assert resp.status_code == 422
+
+
+def test_export_bundle_lbrn2_without_plan_id_is_422(client, uploaded_image_id):
+    """include_lbrn2=true without a plan_id is a client bug — be explicit
+    rather than silently dropping the .lbrn2 from the bundle."""
+    render_resp = client.post("/render", json={"image_id": uploaded_image_id})
+    hid = render_resp.json()["heightmap_id"]
+    resp = client.post(
+        "/export/bundle",
+        json={
+            "heightmap_id": hid,
+            "include_png": True,
+            "include_lbrn2": True,
+            "include_stl": False,
+            # plan_id deliberately missing
+        },
+    )
+    assert resp.status_code == 422
+    assert "plan_id" in resp.json()["detail"]
+
+
 def test_profiles_list(client):
     resp = client.get("/profiles")
     assert resp.status_code == 200

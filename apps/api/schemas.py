@@ -52,7 +52,10 @@ class HeightmapSettings(BaseModel):
     # Procedural background generator — composites a pattern over the
     # photo's background pixels (where the subject mask is 0) BEFORE
     # the photo is sent to sculptok. ``"none"`` disables.
-    background_pattern: Literal["none", "guilloche", "stripes", "dots", "halftone", "checkers"] = "none"
+    background_pattern: Literal[
+        "none", "guilloche", "stripes", "dots", "halftone", "checkers",
+        "solid_black", "solid_white", "solid_grey",
+    ] = "none"
     background_scale: float = Field(1.0, ge=0.05, le=20.0)
     background_angle: float = Field(0.0, ge=-180.0, le=180.0)
     background_seed: int = Field(0, ge=0, le=2_147_483_647)
@@ -117,6 +120,14 @@ class RenderResponse(BaseModel):
     preview_id: str         # shaded preview blob id
     elapsed_s: float
     image_hash: str
+    # Photo after pre-sculptok prep (CLAHE/denoise/specular/auto-orient/
+    # auto-crop + procedural background composite). Lets the wizard show
+    # "this is what sculptok actually saw" without re-running conditioning
+    # on the client.
+    conditioned_id: Optional[str] = None
+    # Subject mask computed during render (only when subject_mask_enabled).
+    # Separate from the user-driven /mask flow which has its own mask_id.
+    render_mask_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +192,20 @@ class ExportLbrn2Request(BaseModel):
 
 class ExportStlRequest(BaseModel):
     heightmap_id: str
+    z_scale_mm: float = Field(5.0, ge=0.1, le=100.0)
+    base_thickness_mm: float = Field(2.0, ge=0.0, le=50.0)
+
+
+class ExportBundleRequest(BaseModel):
+    """Multi-format export → single zip the wizard's "Submit" releases."""
+
+    heightmap_id: str
+    plan_id: Optional[str] = None
+    profile_name: Optional[str] = None
+    include_png: bool = True
+    include_lbrn2: bool = True
+    include_stl: bool = True
+    # Forwarded to the underlying STL exporter.
     z_scale_mm: float = Field(5.0, ge=0.1, le=100.0)
     base_thickness_mm: float = Field(2.0, ge=0.0, le=50.0)
 
@@ -257,12 +282,27 @@ class SculptokGenerateRequest(BaseModel):
     style: Literal["normal", "portrait", "sketch", "pro"] = "pro"
     version: Literal["1.0", "1.5"] = "1.5"
     draw_hd: Literal["2k", "4k"] = "2k"
+    # Optional heightmap-pipeline settings. When supplied, the route runs
+    # the same pre-sculptok conditioning that /render uses (CLAHE,
+    # denoise, specular, auto-orient, auto-crop, optional bg-replace) and
+    # uploads the prepped photo — so the prep settings actually shape
+    # what sculptok sees instead of being cosmetic-only.
+    settings: Optional[HeightmapSettings] = None
 
 
 class SculptokGenerateResponse(BaseModel):
     heightmap_path: str           # server-side filesystem path; passed back via settings.external_heightmap_path
     credits_used: int
     credits_remaining: int
+    # Blob id of the photo that was actually uploaded to sculptok (after
+    # prep + bg-replace). Lets the wizard show a "Sculptok input" tile
+    # so the user can verify what got sent BEFORE the credit was burned.
+    sculptok_input_id: Optional[str] = None
+    # Blob id of the subject mask, when one was computed during prep.
+    # Same mask the wizard would otherwise produce via /mask — exposing
+    # it here means the user gets the deliverable for free if they
+    # enable subject_mask_enabled or use a bg-replace pattern.
+    subject_mask_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

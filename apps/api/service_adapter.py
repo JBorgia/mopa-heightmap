@@ -86,7 +86,12 @@ _images: Dict[str, Image.Image] = {}   # image_id -> PIL Image
 
 
 def store_upload(image: Image.Image) -> UploadResponse:
-    """Store an uploaded PIL image; return its id + metadata."""
+    """Store an uploaded PIL image; return its id + metadata.
+
+    The PNG-re-encoded bytes also go to the blob store under the same id
+    (both keys are ``sha256(raw)[:40]``) so the client can fetch the source
+    via ``GET /blob/{image_id}`` for the wizard preview pane.
+    """
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     raw = buf.getvalue()
@@ -95,6 +100,7 @@ def store_upload(image: Image.Image) -> UploadResponse:
     with _img_lock:
         if image_id not in _images:
             _images[image_id] = image.convert("RGB")
+    blob_store.store_bytes(raw, "image/png")
     return UploadResponse(image_id=image_id, w=image.width, h=image.height, sha256=sha)
 
 
@@ -140,11 +146,27 @@ def do_render(
     heightmap_id = blob_store.store_heightmap(result.heightmap)
     preview_id = blob_store.store_image(result.preview_image, mode="8bit")
 
+    conditioned_id: Optional[str] = None
+    if result.conditioned is not None:
+        conditioned_id = blob_store.store_image(result.conditioned, mode="8bit")
+
+    render_mask_id: Optional[str] = None
+    if result.subject_alpha is not None:
+        # subject_alpha is float32 [0,1] (H, W). Persist as a 16-bit PNG so
+        # the client can fetch /blob/{id} and use it like any other mask.
+        arr16 = (np.clip(result.subject_alpha, 0.0, 1.0) * 65535).astype(np.uint16)
+        mask_img = Image.fromarray(arr16, mode="I;16")
+        mbuf = io.BytesIO()
+        mask_img.save(mbuf, format="PNG")
+        render_mask_id = blob_store.store_bytes(mbuf.getvalue(), "image/png")
+
     return RenderResponse(
         heightmap_id=heightmap_id,
         preview_id=preview_id,
         elapsed_s=result.elapsed_s,
         image_hash=result.image_hash,
+        conditioned_id=conditioned_id,
+        render_mask_id=render_mask_id,
     )
 
 
@@ -312,10 +334,16 @@ def do_export_lbrn2(
             layer = np.clip(1.0 - (1.0 - hm) * mask, 0.0, 1.0).astype(np.float32)
             save_master16_png(layer, png_path)
             png_paths.append((png_name, png_path))
+            # Embed the PNG bytes as base64 inside the .lbrn2 — without
+            # this the writer falls through to a stub Shape with no
+            # SourceFile and LightBurn can't load the bitmap. The
+            # source_file field on ShapeRef is kept for legacy callers
+            # but the writer's only working path is embed_data + source_path.
             shapes.append(ShapeRef(
                 cut_index=ep.cut_setting.index,
                 shape_type="Bitmap",
-                source_file=png_name,
+                source_path=png_path,
+                embed_data=True,
             ))
 
         profile = plan.profile

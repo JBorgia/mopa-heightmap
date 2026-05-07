@@ -233,8 +233,11 @@ describe('export.service constants', () => {
     expect(EXPORT_PNG_FILENAME).toMatch(/\.png$/);
   });
 
-  it('EXPORT_LBRN2_FILENAME ends with .lbrn2', () => {
-    expect(EXPORT_LBRN2_FILENAME).toMatch(/\.lbrn2$/);
+  it('EXPORT_LBRN2_FILENAME ends with .zip — server bundles as a zip', () => {
+    // The /export/lbrn2 endpoint emits a zip containing project.lbrn2 + per-pass
+    // PNGs. Naming the download `.lbrn2` was a silent corruption bug — LightBurn
+    // would refuse to open zipped bytes wearing a `.lbrn2` extension.
+    expect(EXPORT_LBRN2_FILENAME).toMatch(/\.zip$/);
   });
 
   it('EXPORT_STL_FILENAME ends with .stl', () => {

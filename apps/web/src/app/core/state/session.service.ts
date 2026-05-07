@@ -52,11 +52,23 @@ export class SessionService {
               maskId: null,
               coveragePct: 0,
             },
+            // The previous heightmap was either sculptok-generated FROM the
+            // previous photo (so it's irrelevant to this one) or a hand-
+            // supplied PNG the user picked for that subject. Either way,
+            // carrying it over and silently rendering with it would be
+            // wrong. Force the user to re-pick on step 3.
+            settings: {
+              ...current.pipeline.settings,
+              external_heightmap_path: '',
+            },
           },
           output: {
             ...current.output,
             heightmapId: null,
             previewId: null,
+            conditionedId: null,
+            sculptokInputId: null,
+            renderMaskId: null,
             plan: null,
             elapsedSeconds: null,
           },
@@ -66,23 +78,39 @@ export class SessionService {
       complete: () => {
         this.uploadInFlight.set(false);
       },
-      error: () => {
+      error: (err) => {
+        const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
+        this.sessionTree.addToast({
+          id: crypto.randomUUID(),
+          severity: 'error',
+          summary: 'Upload failed',
+          detail,
+        });
         this.uploadInFlight.set(false);
       },
     });
   }
 
   setProfileName(profileName: string | null): void {
-    this.sessionTree.patchState((current) => ({
-      ...current,
-      pipeline: {
-        ...current.pipeline,
-        render: {
-          ...current.pipeline.render,
-          profileName,
+    this.sessionTree.patchState((current) => {
+      const profileChanged = current.pipeline.render.profileName !== profileName;
+      return {
+        ...current,
+        pipeline: {
+          ...current.pipeline,
+          render: {
+            ...current.pipeline.render,
+            profileName,
+          },
         },
-      },
-    }));
+        // The pass plan is keyed to (heightmap, profile, settings); a new
+        // profile invalidates it. Clear so the wizard's auto-compute will
+        // recompute against the new profile.
+        output: profileChanged
+          ? { ...current.output, plan: null }
+          : current.output,
+      };
+    });
     this.sessionTree.pushHistory(`profile:select:${profileName ?? 'none'}`);
   }
 

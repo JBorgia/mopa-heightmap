@@ -15,6 +15,8 @@ import {
   serializeStudioState,
 } from './studio-state';
 
+export const TOAST_AUTO_DISMISS_MS = 5000;
+
 @Injectable({ providedIn: 'root' })
 export class SessionTreeService {
   private readonly router = inject(Router);
@@ -112,6 +114,12 @@ export class SessionTreeService {
         toasts: [...current.ui.toasts, toast],
       },
     }));
+    // Auto-dismiss success/info toasts so they don't pile up. Errors and
+    // warnings stay until the user dismisses them — they signal something
+    // that needs attention.
+    if (toast.severity === 'success' || toast.severity === 'info') {
+      globalThis.setTimeout(() => this.clearToast(toast.id), TOAST_AUTO_DISMISS_MS);
+    }
   }
 
   clearToast(toastId: string): void {

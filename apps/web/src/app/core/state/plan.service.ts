@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 
 import { ApiClientService } from '../api/api-client.service';
 import { SessionTreeService } from './session-tree.service';
@@ -8,6 +8,8 @@ export class PlanService {
   private readonly apiClient = inject(ApiClientService);
   private readonly sessionTree = inject(SessionTreeService);
 
+  readonly inFlight = signal(false);
+
   computePlan(): void {
     const output = this.sessionTree.output();
     const session = this.sessionTree.session();
@@ -16,7 +18,11 @@ export class PlanService {
     if (!output.heightmapId || !session.imageId) {
       return;
     }
+    if (this.inFlight()) {
+      return;
+    }
 
+    this.inFlight.set(true);
     this.apiClient
       .plan({
         image_id: session.imageId,
@@ -41,10 +47,12 @@ export class PlanService {
             },
           }));
           this.sessionTree.pushHistory(`plan:compute:${response.passes.length} passes`);
+          this.inFlight.set(false);
         },
         error: (err) => {
           const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
           this.sessionTree.addToast({ id: crypto.randomUUID(), severity: 'error', summary: 'Pass plan failed', detail });
+          this.inFlight.set(false);
         },
       });
   }

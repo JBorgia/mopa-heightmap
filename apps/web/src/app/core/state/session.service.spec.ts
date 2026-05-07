@@ -17,6 +17,7 @@ function makeTreeMock() {
     pipeline: vi.fn(() => state.pipeline),
     patchState: vi.fn(),
     pushHistory: vi.fn(),
+    addToast: vi.fn(),
     _state: state,
   };
 }
@@ -130,6 +131,34 @@ describe('SessionService', () => {
     expect(service.uploadInFlight()).toBe(false);
   });
 
+  it('uploadImage() surfaces an error toast on failure (silently swallowing it left users guessing)', () => {
+    apiMock.uploadImage.mockReturnValue(throwError(() => ({ error: { detail: 'Cannot decode image' } })));
+    service.uploadImage(new File(['x'], 'bad.png'));
+    expect(treeMock.addToast).toHaveBeenCalledWith(expect.objectContaining({
+      severity: 'error',
+      summary: 'Upload failed',
+      detail: 'Cannot decode image',
+    }));
+  });
+
+  it('uploadImage() clears the previous heightmap source — carrying it over would silently render the wrong depth', () => {
+    const file = new File(['x'], 'new.jpg');
+    service.uploadImage(file);
+    const updater = treeMock.patchState.mock.calls[0][0];
+    const stateWithHeightmap = {
+      ...DEFAULT_STUDIO_STATE,
+      pipeline: {
+        ...DEFAULT_STUDIO_STATE.pipeline,
+        settings: {
+          ...DEFAULT_STUDIO_STATE.pipeline.settings,
+          external_heightmap_path: '/tmp/old-subject.png',
+        },
+      },
+    };
+    const result = updater(stateWithHeightmap);
+    expect(result.pipeline.settings.external_heightmap_path).toBe('');
+  });
+
   // --- setProfileName ---------------------------------------------------------
 
   it('setProfileName() patches pipeline.render.profileName', () => {
@@ -155,5 +184,42 @@ describe('SessionService', () => {
   it('setProfileName(null) pushes profile:select:none history', () => {
     service.setProfileName(null);
     expect(treeMock.pushHistory).toHaveBeenCalledWith('profile:select:none');
+  });
+
+  it('setProfileName() clears the existing pass plan when the profile actually changes', () => {
+    service.setProfileName('mopa_60w_steel');
+    const updater = treeMock.patchState.mock.calls[0][0];
+    const stateWithPlan = {
+      ...DEFAULT_STUDIO_STATE,
+      pipeline: {
+        ...DEFAULT_STUDIO_STATE.pipeline,
+        render: { ...DEFAULT_STUDIO_STATE.pipeline.render, profileName: 'mopa_60w_brass' },
+      },
+      output: {
+        ...DEFAULT_STUDIO_STATE.output,
+        plan: { planId: 'p-old', passes: [] },
+      },
+    };
+    const result = updater(stateWithPlan);
+    expect(result.pipeline.render.profileName).toBe('mopa_60w_steel');
+    expect(result.output.plan).toBeNull();
+  });
+
+  it('setProfileName() leaves the plan alone when the profile did not change', () => {
+    service.setProfileName('mopa_60w_brass');
+    const updater = treeMock.patchState.mock.calls[0][0];
+    const stateWithPlan = {
+      ...DEFAULT_STUDIO_STATE,
+      pipeline: {
+        ...DEFAULT_STUDIO_STATE.pipeline,
+        render: { ...DEFAULT_STUDIO_STATE.pipeline.render, profileName: 'mopa_60w_brass' },
+      },
+      output: {
+        ...DEFAULT_STUDIO_STATE.output,
+        plan: { planId: 'p-current', passes: [] },
+      },
+    };
+    const result = updater(stateWithPlan);
+    expect(result.output.plan?.planId).toBe('p-current');
   });
 });

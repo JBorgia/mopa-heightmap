@@ -37,12 +37,28 @@ export class SculptokService {
     this.apiClient.uploadHeightmap(file).subscribe({
       next: (resp) => {
         this.renderService.patchSettings('external_heightmap_path', resp.heightmap_path);
-        this.sessionTree.addToast({
-          id: crypto.randomUUID(),
-          severity: 'success',
-          summary: 'Heightmap uploaded',
-          detail: `${resp.width}×${resp.height} px`,
-        });
+        // The server detects Sculptok side-by-side composites (depth map +
+        // render preview joined horizontally) and crops to the depth-map
+        // half. Surface a warn toast — the user shipped one PNG and got
+        // a half-as-wide PNG back; they should know.
+        if (resp.auto_cropped) {
+          this.sessionTree.addToast({
+            id: crypto.randomUUID(),
+            severity: 'warn',
+            summary: 'Side-by-side composite detected',
+            detail:
+              `Cropped to the depth-map half (${resp.width}×${resp.height} px). ` +
+              `If the result looks wrong, re-upload the depth-map-only export ` +
+              `from Sculptok rather than the comparison preview.`,
+          });
+        } else {
+          this.sessionTree.addToast({
+            id: crypto.randomUUID(),
+            severity: 'success',
+            summary: 'Heightmap uploaded',
+            detail: `${resp.width}×${resp.height} px`,
+          });
+        }
         this.sessionTree.pushHistory('heightmap:upload');
         this.inFlight.set(false);
       },
@@ -77,18 +93,31 @@ export class SculptokService {
     }
 
     this.inFlight.set(true);
+    // Forward the current heightmap settings so the server can apply
+    // pre-sculptok prep (CLAHE / denoise / specular / auto-orient / auto-
+    // crop / bg-replace) BEFORE uploading. Without this the prep toggles
+    // would be cosmetic — sculptok would still see the raw photo.
     this.apiClient
       .sculptokGenerate({
         image_id: imageId,
         style: opts.style ?? 'pro',
         version: opts.version ?? '1.5',
         draw_hd: opts.draw_hd ?? '2k',
+        settings: state.pipeline.settings,
       })
       .subscribe({
         next: (resp) => {
-          // Server-side path → settings.external_heightmap_path. The
-          // /render endpoint reads this to load the heightmap.
           this.renderService.patchSettings('external_heightmap_path', resp.heightmap_path);
+          // Surface the prepped photo + (optional) subject mask so the
+          // wizard's preview pane shows what sculptok actually saw.
+          this.sessionTree.patchState((current) => ({
+            ...current,
+            output: {
+              ...current.output,
+              sculptokInputId: resp.sculptok_input_id ?? null,
+              renderMaskId: resp.subject_mask_id ?? current.output.renderMaskId,
+            },
+          }));
           this.credits.set({
             configured: true,
             balance: resp.credits_remaining,

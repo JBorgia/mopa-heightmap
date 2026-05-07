@@ -10,6 +10,7 @@ export type RenderResponse = components['schemas']['RenderResponse'];
 export type ExportPngRequest = components['schemas']['ExportPngRequest'];
 export type ExportLbrn2Request = components['schemas']['ExportLbrn2Request'];
 export type ExportStlRequest = components['schemas']['ExportStlRequest'];
+export type ExportBundleRequest = components['schemas']['ExportBundleRequest'];
 export type PassPlanRequest = components['schemas']['PassPlanRequest'];
 export type PassPlanResponse = components['schemas']['PassPlanResponse'];
 export type PassEntry = components['schemas']['PassEntry'];

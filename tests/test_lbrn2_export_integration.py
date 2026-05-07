@@ -209,3 +209,21 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
         assert "project.lbrn2" in names
         png_names = [n for n in names if n.startswith("pass_") and n.endswith(".png")]
         assert png_names, f"no per-pass PNGs in zip; saw {names}"
+
+        # Regression — the API .lbrn2 was emitting empty <Shape Type="Bitmap">
+        # tags with no SourceFile/Data, so LightBurn would open the project
+        # but show blank layers. The fix is to embed the per-pass PNG bytes
+        # as base64 Data on every Bitmap shape.
+        lbrn2_text = zf.read("project.lbrn2").decode("utf-8")
+        assert lbrn2_text.count("<Shape Type=\"Bitmap\"") == len(png_names), (
+            "expected one Bitmap shape per pass PNG"
+        )
+        # Embedded PNG signature in base64 — proof the bitmap data made it
+        # into the project file rather than being a stub reference.
+        assert 'Data="iVBOR' in lbrn2_text, (
+            "Bitmap shape has no embedded PNG Data — LightBurn won't render the layer"
+        )
+        # Each Bitmap shape needs a real W/H attribute too; without it the
+        # transform collapses to zero-size and the bitmap is invisible.
+        assert lbrn2_text.count(' W="') >= len(png_names)
+        assert lbrn2_text.count(' H="') >= len(png_names)

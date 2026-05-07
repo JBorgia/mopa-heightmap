@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 
 import {
   ClickMaskRequest,
+  ExportBundleRequest,
   ExportLbrn2Request,
   ExportPngRequest,
   ExportStlRequest,
@@ -74,6 +75,10 @@ export class ApiClientService {
 
   exportStl(request: ExportStlRequest): Observable<Blob> {
     return this.httpClient.post(`${API_BASE_URL}/export/stl`, request, { responseType: 'blob' });
+  }
+
+  exportBundle(request: ExportBundleRequest): Observable<Blob> {
+    return this.httpClient.post(`${API_BASE_URL}/export/bundle`, request, { responseType: 'blob' });
   }
 
   blobUrl(blobId: string): string {

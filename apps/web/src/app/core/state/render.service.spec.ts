@@ -106,4 +106,49 @@ describe('RenderService', () => {
     service.render();
     expect(treeMock.pushHistory).toHaveBeenCalledWith('render:run', 1230);
   });
+
+  it('render clears the previous pass plan on success — keeping it would bundle .lbrn2 with the wrong heightmap', () => {
+    service.render();
+    const updater = treeMock.patchState.mock.calls[0][0];
+    const stateWithStalePlan = {
+      ...treeMock._state,
+      output: {
+        ...treeMock._state.output,
+        plan: { planId: 'plan-from-previous-render', passes: [] },
+        heightmapId: 'hm-old',
+      },
+    };
+    const result = updater(stateWithStalePlan);
+    expect(result.output.heightmapId).toBe('hm-123');
+    expect(result.output.plan).toBeNull();
+  });
+
+  it('render exposes the inFlight signal during the request', () => {
+    let resolved = false;
+    apiMock.render.mockReturnValue({
+      subscribe: ({ next }: { next: (r: typeof RENDER_RESPONSE) => void }) => {
+        // Defer the response so we can observe inFlight=true between dispatch
+        // and completion.
+        queueMicrotask(() => {
+          next(RENDER_RESPONSE);
+          resolved = true;
+        });
+        return { unsubscribe: () => undefined };
+      },
+    });
+    expect(service.inFlight()).toBe(false);
+    service.render();
+    expect(service.inFlight()).toBe(true);
+    expect(resolved).toBe(false);
+  });
+
+  it('render ignores subsequent calls while one is in flight', () => {
+    apiMock.render.mockReturnValue({
+      subscribe: () => ({ unsubscribe: () => undefined }), // never completes
+    });
+    service.render();
+    service.render();
+    service.render();
+    expect(apiMock.render).toHaveBeenCalledTimes(1);
+  });
 });

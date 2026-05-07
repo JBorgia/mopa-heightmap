@@ -83,6 +83,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/export/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Bundle
+         * @description Bundle the user-selected formats into a single zip.
+         *
+         *     Drives the wizard's Submit action: rather than firing three separate
+         *     downloads, the user picks the formats they want and gets one
+         *     ``mopa_export.zip`` they can drop into a directory of their choice.
+         *
+         *     The bundle inlines the .lbrn2 contents (project file + per-pass PNGs)
+         *     at the top level of the zip, so opening the zip in LightBurn just
+         *     works. The .lbrn2 export endpoint already returns a self-contained
+         *     zip, so we extract its members here rather than nesting zip-in-zip.
+         */
+        post: operations["export_bundle_export_bundle_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mask": {
         parameters: {
             query?: never;
@@ -357,6 +386,43 @@ export interface components {
              */
             max_fraction: number;
         };
+        /**
+         * ExportBundleRequest
+         * @description Multi-format export → single zip the wizard's "Submit" releases.
+         */
+        ExportBundleRequest: {
+            /** Heightmap Id */
+            heightmap_id: string;
+            /** Plan Id */
+            plan_id?: string | null;
+            /** Profile Name */
+            profile_name?: string | null;
+            /**
+             * Include Png
+             * @default true
+             */
+            include_png: boolean;
+            /**
+             * Include Lbrn2
+             * @default true
+             */
+            include_lbrn2: boolean;
+            /**
+             * Include Stl
+             * @default true
+             */
+            include_stl: boolean;
+            /**
+             * Z Scale Mm
+             * @default 5
+             */
+            z_scale_mm: number;
+            /**
+             * Base Thickness Mm
+             * @default 2
+             */
+            base_thickness_mm: number;
+        };
         /** ExportLbrn2Request */
         ExportLbrn2Request: {
             /** Plan Id */
@@ -505,7 +571,7 @@ export interface components {
              * @default none
              * @enum {string}
              */
-            background_pattern: "none" | "guilloche" | "stripes" | "dots" | "halftone" | "checkers";
+            background_pattern: "none" | "guilloche" | "stripes" | "dots" | "halftone" | "checkers" | "solid_black" | "solid_white" | "solid_grey";
             /**
              * Background Scale
              * @default 1
@@ -612,6 +678,11 @@ export interface components {
          * HeightmapUploadResponse
          * @description Shape of POST /upload/heightmap. The path goes straight into
          *     ``settings.external_heightmap_path`` for the next /render call.
+         *
+         *     ``auto_cropped`` flags the case where we detected a Sculptok-style
+         *     side-by-side composite (depth map + render preview) and saved only
+         *     the depth-map half. The wizard surfaces this as a toast so the user
+         *     knows their PNG was modified.
          */
         HeightmapUploadResponse: {
             /** Heightmap Path */
@@ -620,6 +691,11 @@ export interface components {
             width: number;
             /** Height */
             height: number;
+            /**
+             * Auto Cropped
+             * @default false
+             */
+            auto_cropped: boolean;
         };
         /** MaskRequest */
         MaskRequest: {
@@ -735,6 +811,10 @@ export interface components {
             elapsed_s: number;
             /** Image Hash */
             image_hash: string;
+            /** Conditioned Id */
+            conditioned_id?: string | null;
+            /** Render Mask Id */
+            render_mask_id?: string | null;
         };
         /**
          * SculptokCreditsResponse
@@ -784,6 +864,7 @@ export interface components {
              * @enum {string}
              */
             draw_hd: "2k" | "4k";
+            settings?: components["schemas"]["HeightmapSettings"] | null;
         };
         /** SculptokGenerateResponse */
         SculptokGenerateResponse: {
@@ -793,6 +874,10 @@ export interface components {
             credits_used: number;
             /** Credits Remaining */
             credits_remaining: number;
+            /** Sculptok Input Id */
+            sculptok_input_id?: string | null;
+            /** Subject Mask Id */
+            subject_mask_id?: string | null;
         };
         /** TargetPresetSummary */
         TargetPresetSummary: {
@@ -948,6 +1033,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ExportStlRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_bundle_export_bundle_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportBundleRequest"];
             };
         };
         responses: {

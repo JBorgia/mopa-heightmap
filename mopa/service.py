@@ -22,7 +22,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, Tuple
 
 import numpy as np
 from PIL import Image, ImageOps
@@ -141,6 +141,7 @@ class PreviewResult:
     elapsed_s: float
     image_hash: str
     subject_alpha: np.ndarray | None = None  # (H, W) float32 in [0,1] when computed
+    conditioned: Image.Image | None = None   # photo after pre-sculptok prep + composite
 
 
 @dataclass
@@ -221,16 +222,18 @@ class HeightmapService:
         self._maskers: Dict[str, Any] = {}
 
     # ---------------------------------------------------------------- preview
-    def render(
+    def prepare_input(
         self,
         image: Image.Image,
         settings: Mapping[str, Any],
-    ) -> PreviewResult:
-        start = time.perf_counter()
+    ) -> Tuple[Image.Image, np.ndarray | None, str]:
+        """Run pre-sculptok conditioning + (optional) bg-replace.
 
-        # Stage A — pre-sculptok input conditioning (EXIF, WB, CLAHE,
-        # denoise, specular). Cosmetic for the preview; the actual
-        # photo-to-sculptok handoff happens in the CLI/API layer.
+        Used by both ``/render`` (final pipeline) AND ``/sculptok/generate``
+        (uploads the prepped photo, not the raw upload, so the prep
+        settings actually influence what sculptok sees). Returns
+        ``(conditioned_photo, subject_alpha_or_None, image_hash)``.
+        """
         cond_payload = {
             k[len(_INPUT_PREFIX):]: v
             for k, v in settings.items()
@@ -241,21 +244,14 @@ class HeightmapService:
             cond_payload["max_input_dim"] = cond_payload.pop("max_dim")
         conditioned = condition_input(image, settings_from_mapping(cond_payload))
 
-        # Auto-orient face (rotate so the eye line is horizontal).
-        # No-op when no face is detected or mediapipe is unavailable.
         if bool(settings.get("input_auto_orient_face", False)):
             from .imgproc.auto_orient import auto_orient_to_face
-
             conditioned, _angle = auto_orient_to_face(conditioned)
 
-        # Auto-crop to the requested aspect ratio. Uses face detection
-        # when ``input_auto_crop_prefer_face=True`` (default), falling
-        # back to spectral-residual saliency, then to centre crop.
         if bool(settings.get("input_auto_crop", False)):
             aspect = float(settings.get("input_auto_crop_aspect", 0.0) or 0.0)
             if aspect > 0.0:
                 from .imgproc.auto_crop import auto_crop_to_aspect
-
                 conditioned, _strategy = auto_crop_to_aspect(
                     conditioned,
                     target_aspect=aspect,
@@ -264,24 +260,38 @@ class HeightmapService:
 
         image_hash = _hash_pil(conditioned)
 
-        # Subject mask — needed early when a procedural background is
-        # being composited (the BG only fills the *background* pixels;
-        # we need the silhouette to know which those are). Otherwise
-        # computed below as a deliverable-only artifact.
+        # Subject mask — needed when a procedural background is being
+        # composited OR when the user just wants the deliverable. Cached
+        # by (image_hash, backend) so repeat calls within a render don't
+        # re-run inference.
         subject_alpha: np.ndarray | None = None
         if bool(settings.get("subject_mask_enabled", False)):
             subject_alpha = self._compute_subject_mask(conditioned, image_hash, settings)
 
-        # Background-pattern composite — paint the procedural pattern
-        # over the photo's background pixels BEFORE we move on. Keeps
-        # the photo_tonal / color_quantize stages downstream consistent
-        # with what the user sees in the preview.
+        # Background composite — pattern OR solid colour fills the non-
+        # subject pixels BEFORE we move on. This is what makes the prep
+        # actually meaningful for sculptok: with the busy background
+        # replaced, sculptok's depth model focuses on the subject.
         bg_name = str(settings.get("background_pattern", "none") or "none")
         if bg_name != "none" and subject_alpha is not None:
             conditioned = self._composite_background(conditioned, subject_alpha, settings)
-            # The composited photo has a different content fingerprint;
-            # rehash so caches downstream don't conflate the two states.
             image_hash = _hash_pil(conditioned)
+
+        return conditioned, subject_alpha, image_hash
+
+    def render(
+        self,
+        image: Image.Image,
+        settings: Mapping[str, Any],
+    ) -> PreviewResult:
+        start = time.perf_counter()
+
+        # Stage A — pre-sculptok input conditioning (CLAHE, denoise,
+        # specular, optional auto-orient + auto-crop) and the optional
+        # background composite. Same code path /sculptok/generate uses
+        # before uploading, so the post-render preview matches what
+        # sculptok actually saw.
+        conditioned, subject_alpha, image_hash = self.prepare_input(image, settings)
 
         # Heightmap source — must be supplied. Sculptok auto-pull writes
         # a temp file and sets this path; users with their own heightmap
@@ -320,6 +330,7 @@ class HeightmapService:
             elapsed_s=elapsed,
             image_hash=image_hash,
             subject_alpha=subject_alpha,
+            conditioned=conditioned,
         )
 
     # ------------------------------------------------------- background fill
@@ -362,10 +373,16 @@ class HeightmapService:
         except KeyError:
             return photo  # unknown pattern name — leave the photo alone
 
-        intensity = float(np.clip(settings.get("background_intensity", 0.6), 0.0, 1.0))
-        # Map the pattern from [0, 1] to a luminance value around the
-        # photo's existing background mean — keeps the composite from
-        # looking blown out / clipped.
+        # Solid fills are a "scrub the background" use case — the user
+        # wants the background removed, not blended with photo mean.
+        # Procedural patterns keep the soft blend so they read as
+        # decorative texture rather than a hard cutout.
+        is_solid = pattern_name.startswith("solid_")
+        intensity = (
+            1.0
+            if is_solid
+            else float(np.clip(settings.get("background_intensity", 0.6), 0.0, 1.0))
+        )
         bg_mask = subject_alpha < 0.5
         if bg_mask.any():
             base = float(photo_arr[bg_mask].mean()) if bg_mask.any() else 0.5

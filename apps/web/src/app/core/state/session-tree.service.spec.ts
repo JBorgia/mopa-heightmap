@@ -72,6 +72,21 @@ describe('SessionTreeService', () => {
     expect(service.state().ui.toasts[0].id).toBe('t1');
   });
 
+  it('toasts are stripped on deserialize so they do not haunt page reloads', async () => {
+    const { deserializeStudioState, DEFAULT_STUDIO_STATE } = await import('./studio-state');
+    const persisted = JSON.stringify({
+      ...DEFAULT_STUDIO_STATE,
+      ui: {
+        ...DEFAULT_STUDIO_STATE.ui,
+        toasts: [
+          { id: 'persisted-error', severity: 'error', summary: 'Hi', detail: '' },
+        ],
+      },
+    });
+    const restored = deserializeStudioState(persisted);
+    expect(restored.ui.toasts).toEqual([]);
+  });
+
   it('clearToast() removes the matching toast', () => {
     service.addToast({ id: 't2', severity: 'warn', summary: 'W', detail: '' });
     service.clearToast('t2');

@@ -83,6 +83,25 @@ export interface StudioState {
   output: {
     heightmapId: string | null;
     previewId: string | null;
+    /**
+     * Blob id of the photo after pre-sculptok prep + composite. Populated
+     * by /render so the wizard can show what sculptok actually consumed,
+     * separate from the raw uploaded photo.
+     */
+    conditionedId: string | null;
+    /**
+     * Blob id of the photo as uploaded to Sculptok by /sculptok/generate
+     * (i.e. AFTER pre-sculptok prep + bg-replace ran). Lets the wizard
+     * show "this is what sculptok saw" before /render is even invoked,
+     * which is useful for sanity-checking BEFORE burning the credit.
+     */
+    sculptokInputId: string | null;
+    /**
+     * Blob id of the subject mask computed during /render (only set when
+     * settings.subject_mask_enabled). Distinct from the user-driven mask
+     * created via /mask, which lives at pipeline.mask.maskId.
+     */
+    renderMaskId: string | null;
     plan: PassPlan | null;
     elapsedSeconds: number | null;
   };
@@ -188,6 +207,9 @@ export const DEFAULT_STUDIO_STATE: StudioState = {
   output: {
     heightmapId: null,
     previewId: null,
+    conditionedId: null,
+    sculptokInputId: null,
+    renderMaskId: null,
     plan: null,
     elapsedSeconds: null,
   },
@@ -232,7 +254,11 @@ export function deserializeStudioState(raw: string | null): StudioState {
         },
       },
       output: { ...cloneDefaultStudioState().output, ...parsed.output },
-      ui: { ...cloneDefaultStudioState().ui, ...parsed.ui },
+      // Toasts are transient UI state — persisting them means a toast that
+      // was about to auto-dismiss survives the reload (its setTimeout did
+      // not), and an "Upload failed" toast haunts a fresh page-load. Always
+      // start with an empty toast stack regardless of what was persisted.
+      ui: { ...cloneDefaultStudioState().ui, ...parsed.ui, toasts: [] },
     };
   } catch {
     return cloneDefaultStudioState();

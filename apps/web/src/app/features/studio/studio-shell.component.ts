@@ -280,9 +280,13 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   </div>
                   <div class="actions">
                     <button type="button"
-                      [disabled]="!canRender()"
+                      [disabled]="!canRender() || renderService.inFlight()"
                       (click)="render()">
-                      Render
+                      @if (renderService.inFlight()) {
+                        Rendering…
+                      } @else {
+                        Render
+                      }
                     </button>
                   </div>
                   @if (!pipeline().settings.external_heightmap_path && session().imageId) {
@@ -540,6 +544,10 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
           <p-card header="Preview" subheader="Session state">
             <div class="preview-tile">
               <h3>Source image</h3>
+              @if (session().imageId; as imgId) {
+                <img [src]="apiClient.blobUrl(imgId)" alt="Source photo"
+                     style="width:100%; display:block; margin-bottom:0.5rem;" />
+              }
               @if (session().sourceMeta; as meta) {
                 <p>{{ meta.w }} × {{ meta.h }} px · {{ meta.bytes | number }} bytes</p>
                 <p class="hash">{{ session().imageHash?.slice(0, 16) }}…</p>
@@ -547,6 +555,27 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                 <p class="muted">Upload an image to begin.</p>
               }
             </div>
+            @if (output().conditionedId; as cid) {
+              <div class="preview-tile">
+                <h3>Prepped photo</h3>
+                <img [src]="apiClient.blobUrl(cid)" alt="Photo after pre-sculptok prep + composite"
+                     style="width:100%; display:block;" />
+              </div>
+            }
+            @if (pipeline().mask.maskId; as mid) {
+              <div class="preview-tile">
+                <h3>Subject mask</h3>
+                <img [src]="apiClient.blobUrl(mid)" alt="Subject mask"
+                     style="width:100%; display:block; background:#000;" />
+                <p class="hint">{{ pipeline().mask.coveragePct | number: '1.1-1' }}% coverage</p>
+              </div>
+            } @else if (output().renderMaskId; as rmid) {
+              <div class="preview-tile">
+                <h3>Subject mask (render-time)</h3>
+                <img [src]="apiClient.blobUrl(rmid)" alt="Render-time subject mask"
+                     style="width:100%; display:block; background:#000;" />
+              </div>
+            }
             <div class="preview-tile">
               <h3>Heightmap preview</h3>
               @if (output().previewId; as pid) {
@@ -907,7 +936,7 @@ export class StudioShellComponent {
   protected readonly sculptokService = inject(SculptokService);
   protected readonly targetService = inject(TargetService);
   private readonly maskService = inject(MaskService);
-  private readonly renderService = inject(RenderService);
+  protected readonly renderService = inject(RenderService);
   private readonly exportService = inject(ExportService);
   private readonly planService = inject(PlanService);
 

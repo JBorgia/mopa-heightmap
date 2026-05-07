@@ -50,12 +50,14 @@ describe('ExportService', () => {
       exportPng: vi.fn(() => of(new Blob(['png'], { type: 'image/png' }))),
       exportLbrn2: vi.fn(() => of(new Blob(['xml'], { type: 'application/xml' }))),
       exportStl: vi.fn(() => of(new Blob(['stl'], { type: 'model/stl' }))),
+      exportBundle: vi.fn(() => of(new Blob(['zip'], { type: 'application/zip' }))),
     };
 
     const treeMock = {
       state: vi.fn(() => mockState),
       output: vi.fn(() => mockState.output),
       pushHistory: vi.fn(),
+      addToast: vi.fn(),
     };
 
     TestBed.configureTestingModule({
@@ -81,7 +83,7 @@ describe('ExportService', () => {
   });
 
   it('exports EXPORT_LBRN2_FILENAME constant', () => {
-    expect(EXPORT_LBRN2_FILENAME).toBe('project.lbrn2');
+    expect(EXPORT_LBRN2_FILENAME).toBe('project.lbrn2.zip');
   });
 
   it('exports EXPORT_STL_FILENAME constant', () => {
@@ -185,5 +187,65 @@ describe('ExportService', () => {
     (sessionTree as unknown as { state: ReturnType<typeof vi.fn> }).state.mockReturnValue(mockState);
     service.exportStl();
     expect((sessionTree as unknown as { pushHistory: ReturnType<typeof vi.fn> }).pushHistory).toHaveBeenCalledWith('export:stl');
+  });
+
+  // ── exportBundle ───────────────────────────────────────────────────────
+
+  it('exportBundle does nothing when heightmapId is null', () => {
+    mockState = makeState({ heightmapId: null });
+    (sessionTree as unknown as { state: ReturnType<typeof vi.fn> }).state.mockReturnValue(mockState);
+    service.exportBundle({ png: true, lbrn2: true, stl: true });
+    expect((apiClient as unknown as { exportBundle: ReturnType<typeof vi.fn> }).exportBundle).not.toHaveBeenCalled();
+  });
+
+  it('exportBundle does nothing when nothing is selected', () => {
+    mockState = makeState({ heightmapId: 'hm-abc' });
+    (sessionTree as unknown as { state: ReturnType<typeof vi.fn> }).state.mockReturnValue(mockState);
+    service.exportBundle({ png: false, lbrn2: false, stl: false });
+    expect((apiClient as unknown as { exportBundle: ReturnType<typeof vi.fn> }).exportBundle).not.toHaveBeenCalled();
+  });
+
+  it('exportBundle forwards include_* flags + heightmap_id', () => {
+    mockState = makeState({ heightmapId: 'hm-abc', plan: { planId: 'plan-1', passes: [] } });
+    (sessionTree as unknown as { state: ReturnType<typeof vi.fn> }).state.mockReturnValue(mockState);
+    service.exportBundle({ png: true, lbrn2: true, stl: false });
+    expect((apiClient as unknown as { exportBundle: ReturnType<typeof vi.fn> }).exportBundle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        heightmap_id: 'hm-abc',
+        plan_id: 'plan-1',
+        include_png: true,
+        include_lbrn2: true,
+        include_stl: false,
+      }),
+    );
+  });
+
+  it('exportBundle omits plan_id when lbrn2 is not selected', () => {
+    mockState = makeState({ heightmapId: 'hm-abc', plan: { planId: 'plan-1', passes: [] } });
+    (sessionTree as unknown as { state: ReturnType<typeof vi.fn> }).state.mockReturnValue(mockState);
+    service.exportBundle({ png: true, lbrn2: false, stl: true });
+    const call = (apiClient as unknown as { exportBundle: ReturnType<typeof vi.fn> }).exportBundle.mock.calls[0][0];
+    expect(call.plan_id).toBeUndefined();
+  });
+
+  it('exportBundle exposes inFlight signal for the Submit button', () => {
+    const apiMock = apiClient as unknown as { exportBundle: ReturnType<typeof vi.fn> };
+    apiMock.exportBundle.mockReturnValue({ subscribe: () => ({ unsubscribe: () => undefined }) });
+    mockState = makeState({ heightmapId: 'hm-abc' });
+    (sessionTree as unknown as { state: ReturnType<typeof vi.fn> }).state.mockReturnValue(mockState);
+    expect(service.bundleInFlight()).toBe(false);
+    service.exportBundle({ png: true, lbrn2: false, stl: true });
+    expect(service.bundleInFlight()).toBe(true);
+  });
+
+  it('exportBundle ignores re-entry while a request is in flight', () => {
+    const apiMock = apiClient as unknown as { exportBundle: ReturnType<typeof vi.fn> };
+    apiMock.exportBundle.mockReturnValue({ subscribe: () => ({ unsubscribe: () => undefined }) });
+    mockState = makeState({ heightmapId: 'hm-abc' });
+    (sessionTree as unknown as { state: ReturnType<typeof vi.fn> }).state.mockReturnValue(mockState);
+    service.exportBundle({ png: true, lbrn2: false, stl: true });
+    service.exportBundle({ png: true, lbrn2: false, stl: true });
+    service.exportBundle({ png: true, lbrn2: false, stl: true });
+    expect(apiMock.exportBundle).toHaveBeenCalledTimes(1);
   });
 });

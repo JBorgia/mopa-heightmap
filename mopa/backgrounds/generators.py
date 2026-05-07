@@ -26,6 +26,9 @@ PATTERN_NAMES: Tuple[str, ...] = (
     "dots",
     "halftone",
     "checkers",
+    "solid_black",
+    "solid_white",
+    "solid_grey",
 )
 
 
@@ -209,6 +212,37 @@ def checkers_pattern(
     return on.astype(np.float32)
 
 
+# ----------------------------------------------------------- solid fills
+
+def solid_black_pattern(
+    width: int, height: int, *, scale: float = 1.0, angle: float = 0.0, seed: int = 0,
+) -> np.ndarray:
+    """Flat black fill. Used to scrub the background out of the photo
+    before sculptok sees it — sculptok focuses on the subject silhouette
+    when the surroundings carry no signal."""
+    del scale, angle, seed
+    return np.zeros((height, width), dtype=np.float32)
+
+
+def solid_white_pattern(
+    width: int, height: int, *, scale: float = 1.0, angle: float = 0.0, seed: int = 0,
+) -> np.ndarray:
+    """Flat white fill. The mirror-image case — engraves the background
+    flat to surface and lets the subject relief stand out as recessed."""
+    del scale, angle, seed
+    return np.ones((height, width), dtype=np.float32)
+
+
+def solid_grey_pattern(
+    width: int, height: int, *, scale: float = 1.0, angle: float = 0.0, seed: int = 0,
+) -> np.ndarray:
+    """Mid-grey (0.5) fill. A neutral midpoint — useful when the photo's
+    own background mean already sits near the centre and you just want
+    to flatten variation without forcing extreme depth at the seam."""
+    del scale, angle, seed
+    return np.full((height, width), 0.5, dtype=np.float32)
+
+
 # ----------------------------------------------------------- dispatch
 
 _PATTERN_DISPATCH = {
@@ -217,6 +251,9 @@ _PATTERN_DISPATCH = {
     "dots": dots_pattern,
     "halftone": halftone_pattern,
     "checkers": checkers_pattern,
+    "solid_black": solid_black_pattern,
+    "solid_white": solid_white_pattern,
+    "solid_grey": solid_grey_pattern,
 }
 
 

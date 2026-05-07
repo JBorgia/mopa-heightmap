@@ -1,11 +1,15 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 
 import { ApiClientService } from '../api/api-client.service';
 import { SessionTreeService } from './session-tree.service';
 
 export const EXPORT_PNG_FILENAME = 'heightmap.png';
-export const EXPORT_LBRN2_FILENAME = 'project.lbrn2';
+// Server emits a zip bundle (`.lbrn2 project + per-pass PNGs`). User must
+// unzip before LightBurn opens it — naming the download `.lbrn2` was a
+// silent corruption bug.
+export const EXPORT_LBRN2_FILENAME = 'project.lbrn2.zip';
 export const EXPORT_STL_FILENAME = 'heightmap.stl';
+export const EXPORT_BUNDLE_FILENAME = 'mopa_export.zip';
 export const EXPORT_STL_DEFAULT_Z_SCALE_MM = 5.0;
 export const EXPORT_STL_DEFAULT_BASE_THICKNESS_MM = 2.0;
 
@@ -13,6 +17,10 @@ export const EXPORT_STL_DEFAULT_BASE_THICKNESS_MM = 2.0;
 export class ExportService {
   private readonly apiClient = inject(ApiClientService);
   private readonly sessionTree = inject(SessionTreeService);
+
+  /** True while a /export/bundle request is outstanding — drives the wizard
+   * Submit button's "Bundling…" label and prevents duplicate downloads. */
+  readonly bundleInFlight = signal(false);
 
   exportPng(): void {
     const state = this.sessionTree.state();
@@ -76,6 +84,53 @@ export class ExportService {
         error: (err) => {
           const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
           this.sessionTree.addToast({ id: crypto.randomUUID(), severity: 'error', summary: 'STL export failed', detail });
+        },
+      });
+  }
+
+  /** Drives the wizard's Submit action — bundles the selected formats into
+   * one zip and triggers a single download. */
+  exportBundle(opts: { png: boolean; lbrn2: boolean; stl: boolean }): void {
+    const state = this.sessionTree.state();
+    if (!state.output.heightmapId) {
+      return;
+    }
+    if (!opts.png && !opts.lbrn2 && !opts.stl) {
+      return;
+    }
+    if (this.bundleInFlight()) {
+      return;
+    }
+
+    this.bundleInFlight.set(true);
+    this.apiClient
+      .exportBundle({
+        heightmap_id: state.output.heightmapId,
+        plan_id: opts.lbrn2 ? state.output.plan?.planId ?? undefined : undefined,
+        profile_name: state.pipeline.render.profileName ?? undefined,
+        include_png: opts.png,
+        include_lbrn2: opts.lbrn2,
+        include_stl: opts.stl,
+        z_scale_mm: EXPORT_STL_DEFAULT_Z_SCALE_MM,
+        base_thickness_mm: EXPORT_STL_DEFAULT_BASE_THICKNESS_MM,
+      })
+      .subscribe({
+        next: (blob) => {
+          this._triggerDownload(blob, EXPORT_BUNDLE_FILENAME);
+          const formats = [opts.png && 'PNG', opts.lbrn2 && '.lbrn2', opts.stl && '.stl'].filter(Boolean).join(' + ');
+          this.sessionTree.pushHistory(`export:bundle:${formats}`);
+          this.sessionTree.addToast({
+            id: crypto.randomUUID(),
+            severity: 'success',
+            summary: 'Bundle ready',
+            detail: `${formats} downloaded as ${EXPORT_BUNDLE_FILENAME}`,
+          });
+          this.bundleInFlight.set(false);
+        },
+        error: (err) => {
+          const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
+          this.sessionTree.addToast({ id: crypto.randomUUID(), severity: 'error', summary: 'Bundle export failed', detail });
+          this.bundleInFlight.set(false);
         },
       });
   }
