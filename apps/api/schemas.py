@@ -197,7 +197,14 @@ class ExportStlRequest(BaseModel):
 
 
 class ExportBundleRequest(BaseModel):
-    """Multi-format export → single zip the wizard's "Submit" releases."""
+    """Multi-format export → single zip the wizard's "Submit" releases.
+
+    The ``include_*`` flags only gate the heavy / opinionated outputs
+    (PNG, .lbrn2, STL). Auxiliary artifacts the server happens to have
+    on hand (subject mask, source photo, sculptok input, profile YAML)
+    are ALWAYS bundled when supplied — keeping them out would make the
+    user re-run the whole wizard to recover a forgotten file.
+    """
 
     heightmap_id: str
     plan_id: Optional[str] = None
@@ -208,6 +215,13 @@ class ExportBundleRequest(BaseModel):
     # Forwarded to the underlying STL exporter.
     z_scale_mm: float = Field(5.0, ge=0.1, le=100.0)
     base_thickness_mm: float = Field(2.0, ge=0.0, le=50.0)
+
+    # Optional reference artifacts. Each is a blob_id the server resolves
+    # via /blob/{id} and writes into the zip under a stable filename.
+    # All optional — the bundle endpoint silently skips any that 404.
+    image_id: Optional[str] = None              # source photo
+    sculptok_input_id: Optional[str] = None     # post-prep photo uploaded to sculptok
+    subject_mask_id: Optional[str] = None       # subject mask (deliverable)
 
 
 # ---------------------------------------------------------------------------

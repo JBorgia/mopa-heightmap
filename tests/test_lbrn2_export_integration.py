@@ -227,3 +227,32 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
         # transform collapses to zero-size and the bitmap is invisible.
         assert lbrn2_text.count(' W="') >= len(png_names)
         assert lbrn2_text.count(' H="') >= len(png_names)
+
+        # Regression — the writer used to default to 50 mm on the longest
+        # side regardless of heightmap resolution, which forced the user
+        # to manually resize every bitmap in LightBurn. The export now
+        # derives mm from the heightmap pixel count at 254 DPI (≈10 px/mm).
+        # Pin that the size scales with the heightmap (≠ the old 50 mm
+        # constant) and matches the 254-DPI rule for a known input.
+        import re
+        w_match = re.search(r' W="([0-9.]+)"', lbrn2_text)
+        h_match = re.search(r' H="([0-9.]+)"', lbrn2_text)
+        assert w_match and h_match
+        w_mm = float(w_match.group(1))
+        h_mm = float(h_match.group(1))
+        # Heightmap is square in this fixture — both axes should match.
+        assert abs(w_mm - h_mm) < 0.05, f"non-square output: {w_mm}×{h_mm}"
+        # 254-DPI rule: mm ≈ pixels / 10. The exact pixel count depends
+        # on how the service rendered the input; we just verify the rule.
+        hm_arr = api_blob_store.load_heightmap(heightmap_id)
+        assert hm_arr is not None
+        expected_mm = hm_arr.shape[1] * 25.4 / 254.0
+        assert abs(w_mm - expected_mm) < 0.05, (
+            f"expected {expected_mm:.2f} mm at 254 DPI for "
+            f"{hm.shape[1]} px wide heightmap, got {w_mm}"
+        )
+        # Sanity — must have changed from the old 50 mm default for any
+        # heightmap that isn't ~500 px wide.
+        assert hm_arr.shape[1] != 500 or w_mm == 50.0, (
+            "fixture happens to round-trip 50 mm; pick a different size"
+        )

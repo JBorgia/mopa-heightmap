@@ -292,6 +292,86 @@ def test_export_bundle_lbrn2_without_plan_id_is_422(client, uploaded_image_id):
     assert "plan_id" in resp.json()["detail"]
 
 
+def test_export_bundle_includes_reference_artifacts_when_supplied(client, uploaded_image_id):
+    """Subject mask, source photo, sculptok input, and profile YAML
+    are bundled unconditionally when the client passes their blob ids.
+    These are cheap to add and the wizard treats losing them as a
+    workflow regression — re-running the wizard is the alternative."""
+    import io as _io
+    import zipfile
+
+    # Render to get a heightmap, then store a synthetic mask + reuse the
+    # source as the sculptok_input for this test.
+    render_resp = client.post("/render", json={"image_id": uploaded_image_id})
+    hid = render_resp.json()["heightmap_id"]
+
+    # Pretend we have a mask blob (1×1 PNG is enough to round-trip).
+    from apps.api import blob_store as api_blob_store
+    mask_id = api_blob_store.store_bytes(
+        _io.BytesIO().getvalue() or _png_one_pixel(),
+        content_type="image/png",
+    )
+    resp = client.post(
+        "/export/bundle",
+        json={
+            "heightmap_id": hid,
+            "include_png": True,
+            "include_lbrn2": False,
+            "include_stl": False,
+            "image_id": uploaded_image_id,
+            "sculptok_input_id": uploaded_image_id,  # same blob for test simplicity
+            "subject_mask_id": mask_id,
+            "profile_name": "mopa_60w_brass",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    zf = zipfile.ZipFile(_io.BytesIO(resp.content))
+    names = set(zf.namelist())
+    assert "heightmap.png" in names
+    assert "subject_mask.png" in names, f"subject mask missing; saw {names}"
+    assert "source_photo.png" in names, f"source photo missing; saw {names}"
+    assert "sculptok_input.png" in names, f"sculptok input missing; saw {names}"
+    # Profile YAML — gives the user enough to swap materials in LightBurn.
+    profile_files = [n for n in names if n.startswith("profile_") and n.endswith(".yaml")]
+    assert profile_files, f"profile YAML missing; saw {names}"
+
+
+def test_export_bundle_skips_missing_reference_blobs_silently(client, uploaded_image_id):
+    """Unknown reference blob_ids must NOT 404 the whole bundle — they
+    just get skipped so the user still gets the heavy outputs."""
+    import io as _io
+    import zipfile
+
+    render_resp = client.post("/render", json={"image_id": uploaded_image_id})
+    hid = render_resp.json()["heightmap_id"]
+    resp = client.post(
+        "/export/bundle",
+        json={
+            "heightmap_id": hid,
+            "include_png": True,
+            "include_lbrn2": False,
+            "include_stl": False,
+            "subject_mask_id": "0" * 40,  # never seen by blob_store
+            "image_id": "0" * 40,
+        },
+    )
+    assert resp.status_code == 200
+    names = set(zipfile.ZipFile(_io.BytesIO(resp.content)).namelist())
+    assert "heightmap.png" in names
+    assert "subject_mask.png" not in names
+    assert "source_photo.png" not in names
+
+
+def _png_one_pixel() -> bytes:
+    """1×1 black PNG — smallest valid PNG. Used by tests that just need
+    'a valid PNG blob' without exercising the image content."""
+    import io as _io
+    from PIL import Image
+    buf = _io.BytesIO()
+    Image.new("L", (1, 1), color=0).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def test_profiles_list(client):
     resp = client.get("/profiles")
     assert resp.status_code == 200

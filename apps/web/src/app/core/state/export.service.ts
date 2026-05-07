@@ -103,6 +103,13 @@ export class ExportService {
     }
 
     this.bundleInFlight.set(true);
+    // Forward every reference artifact we know about — the server bundles
+    // them unconditionally when present (mask, source photo, sculptok
+    // input, profile YAML). The user shouldn't have to re-run the wizard
+    // because they didn't pre-tick a "include mask" box that wasn't
+    // surfaced in the UI.
+    const userMaskId = state.pipeline.mask.maskId ?? undefined;
+    const renderMaskId = state.output.renderMaskId ?? undefined;
     this.apiClient
       .exportBundle({
         heightmap_id: state.output.heightmapId,
@@ -113,6 +120,12 @@ export class ExportService {
         include_stl: opts.stl,
         z_scale_mm: EXPORT_STL_DEFAULT_Z_SCALE_MM,
         base_thickness_mm: EXPORT_STL_DEFAULT_BASE_THICKNESS_MM,
+        image_id: state.session.imageId ?? undefined,
+        sculptok_input_id: state.output.sculptokInputId ?? undefined,
+        // Prefer the user-driven mask (page 1) over the render-time one;
+        // they both cover the same shape but the page-1 mask is what the
+        // user explicitly intended to ship as the deliverable.
+        subject_mask_id: userMaskId ?? renderMaskId,
       })
       .subscribe({
         next: (blob) => {

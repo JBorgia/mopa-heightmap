@@ -94,16 +94,15 @@ export interface paths {
         put?: never;
         /**
          * Export Bundle
-         * @description Bundle the user-selected formats into a single zip.
+         * @description Bundle the user-selected formats + every available reference
+         *     artifact into a single zip.
          *
-         *     Drives the wizard's Submit action: rather than firing three separate
-         *     downloads, the user picks the formats they want and gets one
-         *     ``mopa_export.zip`` they can drop into a directory of their choice.
-         *
-         *     The bundle inlines the .lbrn2 contents (project file + per-pass PNGs)
-         *     at the top level of the zip, so opening the zip in LightBurn just
-         *     works. The .lbrn2 export endpoint already returns a self-contained
-         *     zip, so we extract its members here rather than nesting zip-in-zip.
+         *     Drives the wizard's Submit action. The ``include_*`` flags gate the
+         *     heavy outputs (PNG / .lbrn2 / STL). Optional reference artifacts
+         *     (subject mask, source photo, sculptok input, profile YAML) are
+         *     ALWAYS included when their blob ids are supplied — losing them in
+         *     the export forces the user to re-run the wizard, which is worse
+         *     than a slightly bigger zip.
          */
         post: operations["export_bundle_export_bundle_post"];
         delete?: never;
@@ -389,6 +388,12 @@ export interface components {
         /**
          * ExportBundleRequest
          * @description Multi-format export → single zip the wizard's "Submit" releases.
+         *
+         *     The ``include_*`` flags only gate the heavy / opinionated outputs
+         *     (PNG, .lbrn2, STL). Auxiliary artifacts the server happens to have
+         *     on hand (subject mask, source photo, sculptok input, profile YAML)
+         *     are ALWAYS bundled when supplied — keeping them out would make the
+         *     user re-run the whole wizard to recover a forgotten file.
          */
         ExportBundleRequest: {
             /** Heightmap Id */
@@ -422,6 +427,12 @@ export interface components {
              * @default 2
              */
             base_thickness_mm: number;
+            /** Image Id */
+            image_id?: string | null;
+            /** Sculptok Input Id */
+            sculptok_input_id?: string | null;
+            /** Subject Mask Id */
+            subject_mask_id?: string | null;
         };
         /** ExportLbrn2Request */
         ExportLbrn2Request: {

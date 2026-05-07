@@ -321,6 +321,34 @@ def do_export_lbrn2(
     if hm is None:
         raise KeyError(f"Unknown heightmap_id: {heightmap_id!r}")
 
+    # Resolve the on-bed size. Without this the writer falls back to
+    # "50 mm on the longest side" — too small for almost every laser job,
+    # and the user has to manually resize the bitmap in LightBurn after
+    # opening. Order of preference:
+    #   1. Explicit print_width_mm / print_height_mm in the profile.
+    #   2. Heightmap pixel dims rasterised at 254 DPI (10 dots per mm —
+    #      a conservative laser default; users can scale up in LightBurn
+    #      without losing detail since the heightmap is 16-bit).
+    px_h, px_w = hm.shape
+    print_w_mm: Optional[float] = None
+    print_h_mm: Optional[float] = None
+    profile_payload: Dict[str, Any] = {}
+    if profile_name:
+        try:
+            profile_payload = load_profile(profile_name)
+        except Exception:
+            profile_payload = {}
+    if isinstance(profile_payload.get("print_width_mm"), (int, float)):
+        print_w_mm = float(profile_payload["print_width_mm"])
+    if isinstance(profile_payload.get("print_height_mm"), (int, float)):
+        print_h_mm = float(profile_payload["print_height_mm"])
+    if print_w_mm is None or print_h_mm is None:
+        # 254 DPI = 25.4 mm/inch ÷ 254 = 0.1 mm per pixel.
+        DEFAULT_DPI = 254.0
+        mm_per_px = 25.4 / DEFAULT_DPI
+        print_w_mm = print_w_mm or float(px_w) * mm_per_px
+        print_h_mm = print_h_mm or float(px_h) * mm_per_px
+
     # Materialise per-pass PNGs into a scratch dir, then zip them up with
     # the project. Scratch dir is cleaned up before this function returns.
     bundle_dir = Path(tempfile.mkdtemp(prefix="mopa_lbrn2_"))
@@ -344,6 +372,8 @@ def do_export_lbrn2(
                 shape_type="Bitmap",
                 source_path=png_path,
                 embed_data=True,
+                physical_width_mm=print_w_mm,
+                physical_height_mm=print_h_mm,
             ))
 
         profile = plan.profile

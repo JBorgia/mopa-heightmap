@@ -13,7 +13,7 @@ from ..schemas import (
     ExportPngRequest,
     ExportStlRequest,
 )
-from ..service_adapter import do_export_lbrn2, do_export_png
+from ..service_adapter import do_export_lbrn2, do_export_png, get_profile_data
 from .. import blob_store
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -127,16 +127,15 @@ async def export_stl(req: ExportStlRequest) -> Response:
 
 @router.post("/bundle")
 async def export_bundle(req: ExportBundleRequest) -> Response:
-    """Bundle the user-selected formats into a single zip.
+    """Bundle the user-selected formats + every available reference
+    artifact into a single zip.
 
-    Drives the wizard's Submit action: rather than firing three separate
-    downloads, the user picks the formats they want and gets one
-    ``mopa_export.zip`` they can drop into a directory of their choice.
-
-    The bundle inlines the .lbrn2 contents (project file + per-pass PNGs)
-    at the top level of the zip, so opening the zip in LightBurn just
-    works. The .lbrn2 export endpoint already returns a self-contained
-    zip, so we extract its members here rather than nesting zip-in-zip.
+    Drives the wizard's Submit action. The ``include_*`` flags gate the
+    heavy outputs (PNG / .lbrn2 / STL). Optional reference artifacts
+    (subject mask, source photo, sculptok input, profile YAML) are
+    ALWAYS included when their blob ids are supplied — losing them in
+    the export forces the user to re-run the wizard, which is worse
+    than a slightly bigger zip.
     """
     if not (req.include_png or req.include_lbrn2 or req.include_stl):
         raise HTTPException(
@@ -185,6 +184,52 @@ async def export_bundle(req: ExportBundleRequest) -> Response:
                 # STL is the most fragile (optional native dep). Skip rather
                 # than fail the whole bundle so the user still gets PNG/.lbrn2.
                 skipped.append("stl")
+
+        # ----------------- always-on reference artifacts ------------------
+        # Subject mask — when the user computed one (via /mask, /render, or
+        # /sculptok/generate) they almost certainly want it shipped to
+        # LightBurn. The mask drives engrave/no-engrave at run time.
+        if req.subject_mask_id:
+            mask_bytes = blob_store.load_bytes(req.subject_mask_id)
+            if mask_bytes is not None:
+                zf.writestr("subject_mask.png", mask_bytes)
+
+        # Original photo — useful as a sanity-check reference when the
+        # heightmap looks off and the user wants to compare.
+        if req.image_id:
+            src_bytes = blob_store.load_bytes(req.image_id)
+            if src_bytes is not None:
+                zf.writestr("source_photo.png", src_bytes)
+
+        # The actual photo Sculptok generated the depth map from. Lets the
+        # user see what the model saw (post-prep + bg-replace) without
+        # trusting that the wizard rendered it identically.
+        if req.sculptok_input_id:
+            sin_bytes = blob_store.load_bytes(req.sculptok_input_id)
+            if sin_bytes is not None:
+                zf.writestr("sculptok_input.png", sin_bytes)
+
+        # Profile YAML — so users can switch profiles in LightBurn without
+        # re-exporting. Includes machine, lightburn_mode, every cut-setting
+        # field. Stays valid even when the user picks a different material
+        # cut later (they just disable the brass layer in LightBurn and
+        # add their own).
+        if req.profile_name:
+            try:
+                profile_data = get_profile_data(req.profile_name)
+                # Persist as YAML for round-trip with the CLI / mopa.profiles
+                # loader. Falls back to JSON if PyYAML isn't available.
+                try:
+                    import yaml
+                    profile_text = yaml.safe_dump(profile_data, sort_keys=False)
+                except ImportError:
+                    import json
+                    profile_text = json.dumps(profile_data, indent=2)
+                zf.writestr(f"profile_{req.profile_name}.yaml", profile_text)
+            except Exception:
+                # Profile lookup is best-effort — never fail the whole bundle
+                # because of a missing/unreadable profile file.
+                pass
 
     headers = {"Content-Disposition": "attachment; filename=mopa_export.zip"}
     if skipped:
