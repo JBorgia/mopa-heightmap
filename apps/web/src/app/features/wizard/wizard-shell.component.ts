@@ -1,5 +1,13 @@
-﻿import { CommonModule } from '@angular/common';
-import { Component, computed, effect, inject, signal } from '@angular/core';
+﻿import { CommonModule, isPlatformBrowser } from '@angular/common';
+import {
+  Component,
+  DestroyRef,
+  PLATFORM_ID,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 
 import { SharedModule } from 'primeng/api';
 import { Card } from 'primeng/card';
@@ -1274,6 +1282,15 @@ export class WizardShellComponent {
   protected readonly exportSelections = signal({ png: true, lbrn2: true, stl: true });
 
   /**
+   * Wall-clock signal that ticks once per second so ``relativeTime`` is
+   * deterministic within a change-detection cycle. Without this, calling
+   * ``Date.now()`` inline would flip "41s ago" to "42s ago" between
+   * Angular's two CD passes and trigger NG0100. The interval lives on
+   * the component so it's torn down on destroy (DestroyRef hook below).
+   */
+  private readonly nowMs = signal(Date.now());
+
+  /**
    * Exposes "the auto-effect already fired for the current key" to the
    * template so the disabled-hint can distinguish "compute is queued" from
    * "compute already ran and didn't produce a plan — retry manually".
@@ -1290,6 +1307,14 @@ export class WizardShellComponent {
   constructor() {
     this.sessionService.loadProfiles();
     this.sculptokService.loadCredits();
+
+    // Tick the relative-time clock once per second — only in the browser,
+    // and tear down on destroy so the test harness doesn't leak intervals.
+    const platformId = inject(PLATFORM_ID);
+    if (isPlatformBrowser(platformId)) {
+      const handle = globalThis.setInterval(() => this.nowMs.set(Date.now()), 1000);
+      inject(DestroyRef).onDestroy(() => globalThis.clearInterval(handle));
+    }
 
     // Auto-compute pass plan whenever prerequisites are ready — independent
     // of which page the user is on. If they skip page 4 and jump straight
@@ -1349,7 +1374,9 @@ export class WizardShellComponent {
     if (!iso) return '—';
     const t = new Date(iso).getTime();
     if (Number.isNaN(t)) return '—';
-    const seconds = Math.max(0, Math.round((Date.now() - t) / 1000));
+    // Read from the per-second signal, NOT Date.now(), so the same value
+    // is returned across both passes of dev-mode change detection.
+    const seconds = Math.max(0, Math.round((this.nowMs() - t) / 1000));
     if (seconds < 5) return 'just now';
     if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.round(seconds / 60);
