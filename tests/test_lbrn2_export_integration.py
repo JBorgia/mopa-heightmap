@@ -258,6 +258,81 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
         )
 
 
+def test_api_export_lbrn2_fits_portrait_heightmap_into_profile_box_preserving_aspect():
+    """When the profile defines a ``print_width_mm`` × ``print_height_mm``
+    bounding box, the exporter must scale the heightmap into that box
+    preserving its native aspect — never stretch a portrait into a
+    square plaque profile. The embedded PNG bytes don't change; only
+    the .lbrn2 W/H attributes do."""
+    import io as _io
+    import re
+    import tempfile
+    import yaml as _yaml
+    from pathlib import Path
+    from apps.api.service_adapter import do_export_lbrn2, store_plan
+    from apps.api import blob_store as api_blob_store
+    from mopa.stages import plan_passes
+    from mopa.lightburn_cards import (
+        DEFAULT_CARDS_DIR, DEFAULT_PROFILE_NAME, load_lightburn_card,
+    )
+    from mopa import profiles as _profiles
+
+    # Heightmap 60×120 (0.5:1 portrait).
+    hm = np.linspace(0.2, 0.9, 60 * 120, dtype=np.float32).reshape(120, 60)
+    heightmap_id = api_blob_store.store_heightmap(hm)
+
+    material = load_lightburn_card(DEFAULT_CARDS_DIR / f"{DEFAULT_PROFILE_NAME}.lbrn2")
+    plan = plan_passes(heightmap=hm, profile=material)
+    plan_id = store_plan(plan)
+
+    # Synthesise a profile in a temp dir with a SQUARE 60 × 60
+    # bounding box. A portrait heightmap should emerge as 30 × 60 mm
+    # (fit-to-height; width is constrained well below the 60-mm box).
+    tmp_user_dir = Path(tempfile.mkdtemp(prefix="mopa_profile_test_"))
+    profile_path = tmp_user_dir / "test_square_box.yaml"
+    profile_path.write_text(
+        _yaml.safe_dump({
+            "name": "test_square_box",
+            "machine": "60W MOPA fiber",
+            "lightburn_mode": "3D Sliced",
+            "black_is_deep": True,
+            "print_width_mm": 60.0,
+            "print_height_mm": 60.0,
+        }),
+        encoding="utf-8",
+    )
+    # Point the loader at the temp dir via the documented env override
+    # so we don't mutate the user's real ~/.mopa-heightmap/profiles.
+    import os as _os
+    saved_env = _os.environ.get(_profiles.USER_PROFILES_ENV)
+    _os.environ[_profiles.USER_PROFILES_ENV] = str(tmp_user_dir)
+    try:
+        zip_bytes = do_export_lbrn2(
+            plan_id=plan_id,
+            heightmap_id=heightmap_id,
+            profile_name="test_square_box",
+        )
+    finally:
+        if saved_env is None:
+            _os.environ.pop(_profiles.USER_PROFILES_ENV, None)
+        else:
+            _os.environ[_profiles.USER_PROFILES_ENV] = saved_env
+
+    text = zipfile.ZipFile(_io.BytesIO(zip_bytes)).read("project.lbrn2").decode("utf-8")
+    w_match = re.search(r' W="([0-9.]+)"', text)
+    h_match = re.search(r' H="([0-9.]+)"', text)
+    assert w_match and h_match
+    w_mm = float(w_match.group(1))
+    h_mm = float(h_match.group(1))
+    # Portrait heightmap (60×120) into 60×60 box → 30×60 mm. The box's
+    # height is the binding constraint because the image is taller than
+    # wide; width drops below the box maximum to preserve aspect.
+    assert abs(w_mm - 30.0) < 0.01, f"expected ~30 mm width, got {w_mm}"
+    assert abs(h_mm - 60.0) < 0.01, f"expected ~60 mm height, got {h_mm}"
+    # Aspect must equal heightmap aspect — not the box aspect.
+    assert abs((w_mm / h_mm) - (60.0 / 120.0)) < 1e-3
+
+
 def test_api_export_lbrn2_with_subject_mask_adds_non_engraving_layer(
     tmp_path: Path, service, settings_with_heightmap, synthetic_image,
 ):
@@ -293,7 +368,14 @@ def test_api_export_lbrn2_with_subject_mask_adds_non_engraving_layer(
     )
     with zipfile.ZipFile(_io.BytesIO(zip_bytes)) as zf:
         names = set(zf.namelist())
-        assert "subject_mask.png" in names
+        # The mask is embedded as base64 inside project.lbrn2 (verified
+        # below), so the inner .lbrn2 zip MUST NOT also write it as a
+        # standalone file — that would ship the same bytes twice in
+        # /export/bundle (the bundle endpoint adds the standalone copy
+        # separately from blob_store).
+        assert "subject_mask.png" not in names, (
+            f"mask should be embedded only, not duplicated as a file; saw {names}"
+        )
         text = zf.read("project.lbrn2").decode("utf-8")
         # Two Bitmap shapes: one depth pass + one mask.
         assert text.count('<Shape Type="Bitmap"') == 2

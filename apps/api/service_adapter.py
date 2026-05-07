@@ -326,33 +326,53 @@ def do_export_lbrn2(
     if hm is None:
         raise KeyError(f"Unknown heightmap_id: {heightmap_id!r}")
 
-    # Resolve the on-bed size. Without this the writer falls back to
-    # "50 mm on the longest side" — too small for almost every laser job,
-    # and the user has to manually resize the bitmap in LightBurn after
-    # opening. Order of preference:
-    #   1. Explicit print_width_mm / print_height_mm in the profile.
-    #   2. Heightmap pixel dims rasterised at 254 DPI (10 dots per mm —
-    #      a conservative laser default; users can scale up in LightBurn
-    #      without losing detail since the heightmap is 16-bit).
+    # Resolve the on-bed size. Profile fields ``print_width_mm`` and
+    # ``print_height_mm`` define a BOUNDING BOX — the exporter scales
+    # the heightmap to fit while preserving its native aspect ratio so
+    # a portrait sculptok output never gets stretched into a square
+    # plaque profile. The embedded PNG bytes are always full sculptok
+    # resolution; only the LightBurn W/H attributes change.
+    #
+    # Fallback when the profile doesn't supply a box: rasterise at
+    # 254 DPI (10 px/mm) so the user gets a sensible mm size without
+    # any per-export configuration.
     px_h, px_w = hm.shape
-    print_w_mm: Optional[float] = None
-    print_h_mm: Optional[float] = None
+    aspect = float(px_w) / float(px_h) if px_h > 0 else 1.0
+
     profile_payload: Dict[str, Any] = {}
     if profile_name:
         try:
             profile_payload = load_profile(profile_name)
         except Exception:
             profile_payload = {}
-    if isinstance(profile_payload.get("print_width_mm"), (int, float)):
-        print_w_mm = float(profile_payload["print_width_mm"])
-    if isinstance(profile_payload.get("print_height_mm"), (int, float)):
-        print_h_mm = float(profile_payload["print_height_mm"])
-    if print_w_mm is None or print_h_mm is None:
+
+    box_w = profile_payload.get("print_width_mm")
+    box_h = profile_payload.get("print_height_mm")
+    box_w = float(box_w) if isinstance(box_w, (int, float)) else None
+    box_h = float(box_h) if isinstance(box_h, (int, float)) else None
+
+    if box_w is not None and box_h is not None:
+        # Both axes constrained → "contain" fit. Whichever axis is the
+        # tighter constraint sets the scale; the other shrinks below
+        # the box on its short axis. This is the same fit-to-area
+        # logic CSS uses for ``object-fit: contain``.
+        scale = min(box_w / float(px_w), box_h / float(px_h))
+        print_w_mm = float(px_w) * scale
+        print_h_mm = float(px_h) * scale
+    elif box_w is not None:
+        # Width-only constraint → height follows aspect.
+        print_w_mm = box_w
+        print_h_mm = box_w / aspect
+    elif box_h is not None:
+        # Height-only constraint → width follows aspect.
+        print_h_mm = box_h
+        print_w_mm = box_h * aspect
+    else:
         # 254 DPI = 25.4 mm/inch ÷ 254 = 0.1 mm per pixel.
         DEFAULT_DPI = 254.0
         mm_per_px = 25.4 / DEFAULT_DPI
-        print_w_mm = print_w_mm or float(px_w) * mm_per_px
-        print_h_mm = print_h_mm or float(px_h) * mm_per_px
+        print_w_mm = float(px_w) * mm_per_px
+        print_h_mm = float(px_h) * mm_per_px
 
     # Materialise per-pass PNGs into a scratch dir, then zip them up with
     # the project. Scratch dir is cleaned up before this function returns.

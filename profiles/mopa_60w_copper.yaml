@@ -3,9 +3,10 @@ machine: "60W MOPA fiber"
 lightburn_mode: "3D Sliced"
 black_is_deep: true
 
-# Default on-bed print size for the .lbrn2 export. 80 × 80 mm suits
-# the copper sheet stock most engravers buy (decorative panels, small
-# signage). User can override per-export.
+# Default print BOUNDING BOX for the .lbrn2 export — the exporter
+# fits the heightmap into this area preserving aspect, so non-square
+# heightmaps don't stretch. 80 × 80 mm suits the copper sheet stock
+# most engravers buy (decorative panels, small signage).
 print_width_mm: 80.0
 print_height_mm: 80.0
 

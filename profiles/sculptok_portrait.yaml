@@ -8,9 +8,11 @@ black_is_deep: true
 # input prep, deliverable selection (subject mask, photo-tonal, signature),
 # and the LightBurn cut-setting starting point.
 
-# Default on-bed print size — portrait orientation, sized for a typical
-# 80 × 120 mm plaque or pendant. The exporter scales the heightmap to
-# fit; users can override per-export.
+# Default print BOUNDING BOX — portrait orientation, sized for a
+# typical 80 × 120 mm plaque or pendant. The exporter fits the
+# heightmap into this area preserving aspect, so a square sculptok
+# output would render 80 × 80 mm here (constrained by width) rather
+# than being stretched to 80 × 120.
 print_width_mm: 80.0
 print_height_mm: 120.0
 
