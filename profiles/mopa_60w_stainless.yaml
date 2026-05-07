@@ -3,6 +3,13 @@ machine: "60W MOPA fiber"
 lightburn_mode: "3D Sliced"
 black_is_deep: true
 
+# Default on-bed print size for the .lbrn2 export. 100 × 100 mm
+# matches typical stainless plate sizes for plaque / award engraving
+# — bigger than brass because the material is cheaper per unit area.
+# Override per-export when working on larger sheet stock.
+print_width_mm: 100.0
+print_height_mm: 100.0
+
 heightmap:
   near_percentile: 4
   far_percentile: 96

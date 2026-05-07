@@ -256,3 +256,62 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
         assert hm_arr.shape[1] != 500 or w_mm == 50.0, (
             "fixture happens to round-trip 50 mm; pick a different size"
         )
+
+
+def test_api_export_lbrn2_with_subject_mask_adds_non_engraving_layer(
+    tmp_path: Path, service, settings_with_heightmap, synthetic_image,
+):
+    """Subject mask should arrive in the .lbrn2 as a SECOND Bitmap on a
+    new CutSetting with output=0, so the user can toggle it in LightBurn
+    without it firing on Start."""
+    from apps.api.service_adapter import do_export_lbrn2, store_plan
+    from apps.api import blob_store as api_blob_store
+    from mopa.stages import plan_passes
+    import io as _io
+    import re
+    from PIL import Image
+
+    request = ExportRequest(
+        output_dir=tmp_path, base_stem="api_mask", write_preview=False,
+    )
+    bundle = service.export(synthetic_image, settings_with_heightmap, request)
+    hm = np.asarray(Image.open(bundle.master16_png), dtype=np.float32) / 65535.0
+    heightmap_id = api_blob_store.store_heightmap(hm)
+
+    material = load_lightburn_card(DEFAULT_CARDS_DIR / f"{DEFAULT_PROFILE_NAME}.lbrn2")
+    plan = plan_passes(heightmap=hm, profile=material)
+    plan_id = store_plan(plan)
+
+    # Synthesise a 1×1 mask blob — the contents don't matter, just that
+    # the export inlines it as a layer.
+    mbuf = _io.BytesIO()
+    Image.new("L", (4, 4), color=255).save(mbuf, format="PNG")
+    mask_id = api_blob_store.store_bytes(mbuf.getvalue(), content_type="image/png")
+
+    zip_bytes = do_export_lbrn2(
+        plan_id=plan_id, heightmap_id=heightmap_id, subject_mask_id=mask_id,
+    )
+    with zipfile.ZipFile(_io.BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        assert "subject_mask.png" in names
+        text = zf.read("project.lbrn2").decode("utf-8")
+        # Two Bitmap shapes: one depth pass + one mask.
+        assert text.count('<Shape Type="Bitmap"') == 2
+        # The mask CutSetting must have output=0 so LightBurn won't fire it
+        # on Start. Find it by scanning for the CutSetting_Img blocks.
+        cut_settings = re.findall(
+            r'<CutSetting_Img[^>]*>.*?</CutSetting_Img>', text, flags=re.DOTALL,
+        )
+        # At least one CutSetting must have output Value="0" — the mask one.
+        outputs = [
+            re.search(r'<output Value="(\d)"', cs)
+            for cs in cut_settings
+        ]
+        non_engraving = [m.group(1) for m in outputs if m and m.group(1) == "0"]
+        assert non_engraving, (
+            "expected a CutSetting with output=0 (the non-engraving mask "
+            "layer); none found"
+        )
+        # The mask layer should also be named so users can spot it in the
+        # LightBurn layer list.
+        assert "subject_mask" in text or "M99" in text or "M100" in text

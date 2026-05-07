@@ -293,6 +293,7 @@ def do_export_lbrn2(
     plan_id: str,
     heightmap_id: str,
     profile_name: Optional[str] = None,
+    subject_mask_id: Optional[str] = None,
 ) -> bytes:
     """Serialise a stored PassPlan into a zip bundle ready for LightBurn.
 
@@ -300,6 +301,10 @@ def do_export_lbrn2(
     enabled pass. The .lbrn2 references the PNGs by relative filename, so
     when the user unzips the bundle to any directory and opens the
     project, every bitmap layer loads correctly.
+
+    When ``subject_mask_id`` is supplied, the mask is added as an
+    additional Bitmap shape on a non-engraving layer (Output=0) so the
+    user can see + toggle it in LightBurn without it firing by accident.
 
     Returns the raw zip bytes; the route layer sets the proper content-
     disposition + media-type.
@@ -378,6 +383,68 @@ def do_export_lbrn2(
 
         profile = plan.profile
         used = {ep.cut_setting.index: ep.cut_setting for ep in plan.passes}
+
+        # Subject mask as a non-engraving layer. Output=0 keeps LightBurn
+        # from firing it; numPasses=0 is a belt-and-braces second guard.
+        # The user can toggle the layer's visibility/output to use the
+        # mask as a guide (manual vector cuts inside the silhouette,
+        # secondary anneal pass, etc.) without losing it as a deliverable.
+        if subject_mask_id:
+            mask_bytes = blob_store.load_bytes(subject_mask_id)
+            if mask_bytes is not None:
+                # Write the mask PNG to the scratch dir so the writer can
+                # read it for embedding, but DON'T append it to
+                # ``png_paths``: the mask is embedded as base64 inside the
+                # .lbrn2 (embed_data=True below), and the bundle endpoint
+                # writes a standalone ``subject_mask.png`` from the same
+                # blob_id as a reference artifact. Adding it here would
+                # ship the same bytes three times.
+                mask_path = bundle_dir / "subject_mask.png"
+                mask_path.write_bytes(mask_bytes)
+
+                from mopa.lightburn_cards import ColorEntry as _ColorEntry
+                # Pick the next free index — a value above any existing
+                # plan-pass index to avoid collisions with the depth /
+                # photo-tonal / signature layers.
+                mask_index = max([99, *(used.keys())]) + 1 if used else 99
+                mask_entry = _ColorEntry(
+                    index=mask_index,
+                    name=f"M{mask_index:02d}",
+                    max_power=0.0,
+                    speed=1000.0,
+                    frequency=20000,
+                    q_pulse_width=100,
+                    interval=0.1,
+                    raw={
+                        "index": str(mask_index),
+                        "name": f"M{mask_index:02d}_subject_mask",
+                        "maxPower": "0",
+                        "maxPower2": "0",
+                        "speed": "1000",
+                        "frequency": "20000",
+                        "QPulseWidth": "100",
+                        "interval": "0.1",
+                        "numPasses": "0",
+                        # The two flags that keep LightBurn from firing
+                        # the layer when the user clicks Start.
+                        "output": "0",
+                        # No-op tag in the depth-cut style; overridden
+                        # by writer to ditherMode=3dslice anyway. Kept
+                        # for parity with the depth pass so LightBurn
+                        # opens the layer in the same Image mode.
+                        "subname": "Subject mask (non-engrave)",
+                    },
+                )
+                used[mask_index] = mask_entry
+                shapes.append(ShapeRef(
+                    cut_index=mask_index,
+                    shape_type="Bitmap",
+                    source_path=mask_path,
+                    embed_data=True,
+                    physical_width_mm=print_w_mm,
+                    physical_height_mm=print_h_mm,
+                ))
+
         tree = build_lbrn_tree(
             entries=list(used.values()),
             shapes=shapes,
@@ -393,11 +460,17 @@ def do_export_lbrn2(
                 zf.write(path, arcname=name)
         return zbuf.getvalue()
     finally:
-        for _, path in png_paths:
-            try:
-                path.unlink(missing_ok=True)
-            except OSError:
-                pass
+        # Clean up every file we wrote to the scratch dir, not just the
+        # ones that ended up in png_paths (the mask PNG is on disk but not
+        # in png_paths because it's embedded into the .lbrn2 instead).
+        try:
+            for child in bundle_dir.iterdir():
+                try:
+                    child.unlink()
+                except OSError:
+                    pass
+        except OSError:
+            pass
         try:
             bundle_dir.rmdir()
         except OSError:

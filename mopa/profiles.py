@@ -129,6 +129,11 @@ _KNOWN_TOP_LEVEL_KEYS = {
     "lightburn_starting_point",
     "color_recipes",
     "calibration_lut",
+    # Default on-bed print size for the .lbrn2 export — picked up by
+    # service_adapter.do_export_lbrn2 so the bitmap lands at a sane mm
+    # size instead of the writer's 50 mm fallback.
+    "print_width_mm",
+    "print_height_mm",
     "__profile_path__",
 }
 

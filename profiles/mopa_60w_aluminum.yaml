@@ -3,6 +3,13 @@ machine: "60W MOPA fiber"
 lightburn_mode: "3D Sliced"
 black_is_deep: true
 
+# Default on-bed print size for the .lbrn2 export. The exporter scales
+# the heightmap to fit; users can override per-export via the wizard or
+# resize directly in LightBurn after import. Picked for a typical
+# 100 × 100 mm aluminium blank (signage / nameplate stock).
+print_width_mm: 100.0
+print_height_mm: 100.0
+
 heightmap:
   near_percentile: 6
   far_percentile: 94

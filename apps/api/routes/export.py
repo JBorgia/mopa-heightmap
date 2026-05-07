@@ -163,6 +163,12 @@ async def export_bundle(req: ExportBundleRequest) -> Response:
                     plan_id=req.plan_id,  # type: ignore[arg-type]  # validated above
                     heightmap_id=req.heightmap_id,
                     profile_name=req.profile_name,
+                    # Forward the mask so it lands as a non-engraving
+                    # toggleable layer in the .lbrn2 itself, not just a
+                    # standalone PNG in the zip. Users get both — the
+                    # layer for in-LightBurn workflows, the PNG for
+                    # external tooling.
+                    subject_mask_id=req.subject_mask_id,
                 )
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc

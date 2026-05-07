@@ -3,6 +3,13 @@ machine: "60W MOPA fiber"
 lightburn_mode: "3D Sliced"
 black_is_deep: true
 
+# Default on-bed print size for the .lbrn2 export. Picked for typical
+# 60 × 60 mm brass plaques and signet rings — small enough to suit
+# the material's expense, larger jobs override per-export. Aspect
+# follows the heightmap; the exporter just chooses the longest edge.
+print_width_mm: 60.0
+print_height_mm: 60.0
+
 heightmap:
   near_percentile: 5
   far_percentile: 95
