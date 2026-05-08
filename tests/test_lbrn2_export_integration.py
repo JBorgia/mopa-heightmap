@@ -397,3 +397,33 @@ def test_api_export_lbrn2_with_subject_mask_adds_non_engraving_layer(
         # The mask layer should also be named so users can spot it in the
         # LightBurn layer list.
         assert "subject_mask" in text or "M99" in text or "M100" in text
+
+        # Regression — LightBurn 1.7 crashes when a CutSetting_Img block
+        # is missing required fields (bidir, priority, tabCount,
+        # tabCountMax) or has invalid values (numPasses=0, non-standard
+        # subname). The mask layer's CutSetting is built by cloning the
+        # depth pass's structure, so both must carry the same field set.
+        def _tags(block: str) -> set[str]:
+            return set(re.findall(r"<(\w+) Value=\"[^\"]*\"/>", block))
+
+        depth_block = next(cs for cs in cut_settings if 'name Value="C01"' in cs)
+        mask_block = next(cs for cs in cut_settings if 'name Value="M' in cs)
+        depth_tags = _tags(depth_block)
+        mask_tags = _tags(mask_block)
+        # Mask must have every field the depth cut has (plus possibly extras
+        # like ``output`` which the depth doesn't bother setting).
+        missing = depth_tags - mask_tags
+        assert not missing, (
+            f"mask CutSetting missing fields {missing} that LightBurn requires; "
+            f"depth has {depth_tags}, mask has {mask_tags}"
+        )
+        # numPasses must be > 0 — LightBurn rejects 0-pass layers.
+        np_match = re.search(r'<numPasses Value="(\d+)"', mask_block)
+        assert np_match and int(np_match.group(1)) >= 1, (
+            f"mask numPasses must be ≥ 1 (LightBurn crashes on 0); got {mask_block}"
+        )
+        # subname must be a known LightBurn value, not a custom string.
+        subname_match = re.search(r'<subname Value="([^"]+)"', mask_block)
+        assert subname_match and subname_match.group(1) in {
+            "3D Slice", "Image", "Fill", "Line",
+        }, f"unknown subname {subname_match!r}; LightBurn only knows the standard set"

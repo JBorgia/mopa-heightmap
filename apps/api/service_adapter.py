@@ -423,37 +423,45 @@ def do_export_lbrn2(
                 mask_path.write_bytes(mask_bytes)
 
                 from mopa.lightburn_cards import ColorEntry as _ColorEntry
-                # Pick the next free index — a value above any existing
-                # plan-pass index to avoid collisions with the depth /
-                # photo-tonal / signature layers.
+                # Pick the next free index — above any existing plan-pass
+                # index to avoid collisions with depth / photo-tonal /
+                # signature layers.
                 mask_index = max([99, *(used.keys())]) + 1 if used else 99
+                # Clone the depth pass's CutSetting structure verbatim and
+                # only flip the fields that need to be different. Building
+                # the CutSetting from scratch is fragile — LightBurn 1.7
+                # crashes when fields like ``bidir`` / ``priority`` /
+                # ``tabCount`` / ``tabCountMax`` are missing, when
+                # ``numPasses`` is 0, or when ``subname`` is not one of
+                # the known values. Cloning guarantees the XML schema
+                # matches LightBurn's expectations.
+                depth_pass = plan.passes[0] if plan.passes else None
+                depth_raw = (
+                    dict(depth_pass.cut_setting.raw)
+                    if depth_pass and depth_pass.cut_setting.raw
+                    else {}
+                )
+                # Overrides — index / name move the layer, maxPower=0 and
+                # output=0 keep it from firing if the user accidentally
+                # enables it, name keeps it identifiable in the LightBurn
+                # layer list.
+                mask_raw = dict(depth_raw)
+                mask_raw.update({
+                    "index": str(mask_index),
+                    "name": f"M{mask_index:02d}_subject_mask",
+                    "maxPower": "0",
+                    "maxPower2": "0",
+                    "output": "0",
+                })
                 mask_entry = _ColorEntry(
                     index=mask_index,
                     name=f"M{mask_index:02d}",
                     max_power=0.0,
-                    speed=1000.0,
-                    frequency=20000,
-                    q_pulse_width=100,
-                    interval=0.1,
-                    raw={
-                        "index": str(mask_index),
-                        "name": f"M{mask_index:02d}_subject_mask",
-                        "maxPower": "0",
-                        "maxPower2": "0",
-                        "speed": "1000",
-                        "frequency": "20000",
-                        "QPulseWidth": "100",
-                        "interval": "0.1",
-                        "numPasses": "0",
-                        # The two flags that keep LightBurn from firing
-                        # the layer when the user clicks Start.
-                        "output": "0",
-                        # No-op tag in the depth-cut style; overridden
-                        # by writer to ditherMode=3dslice anyway. Kept
-                        # for parity with the depth pass so LightBurn
-                        # opens the layer in the same Image mode.
-                        "subname": "Subject mask (non-engrave)",
-                    },
+                    speed=depth_pass.cut_setting.speed if depth_pass else 1000.0,
+                    frequency=depth_pass.cut_setting.frequency if depth_pass else 20000,
+                    q_pulse_width=depth_pass.cut_setting.q_pulse_width if depth_pass else 100,
+                    interval=depth_pass.cut_setting.interval if depth_pass else 0.1,
+                    raw=mask_raw,
                 )
                 used[mask_index] = mask_entry
                 shapes.append(ShapeRef(
