@@ -5,6 +5,23 @@ import type { SculptokCreditsResponse } from '../api/api-types';
 import { RenderService } from './render.service';
 import { SessionTreeService } from './session-tree.service';
 
+export type SculptokStage =
+  | 'idle'
+  | 'preparing'   // pre-sculptok image conditioning running
+  | 'generating'  // sculptok API call in flight
+  | 'packaging'   // writing heightmap path + refreshing credits
+  | 'done'
+  | 'error';
+
+export const SCULPTOK_STAGE_LABELS: Record<SculptokStage, string> = {
+  idle:       '',
+  preparing:  'Preparing image…',
+  generating: 'Generating depth map…',
+  packaging:  'Packaging result…',
+  done:       'Done',
+  error:      'Failed',
+};
+
 /**
  * Drives the sculptok auto-pull flow:
  *
@@ -23,6 +40,7 @@ export class SculptokService {
 
   readonly credits = signal<SculptokCreditsResponse | null>(null);
   readonly inFlight = signal<boolean>(false);
+  readonly stage = signal<SculptokStage>('idle');
 
   loadCredits(): void {
     this.apiClient.sculptokCredits().subscribe({
@@ -93,10 +111,12 @@ export class SculptokService {
     }
 
     this.inFlight.set(true);
+    this.stage.set('preparing');
     // Forward the current heightmap settings so the server can apply
     // pre-sculptok prep (CLAHE / denoise / specular / auto-orient / auto-
     // crop / bg-replace) BEFORE uploading. Without this the prep toggles
     // would be cosmetic — sculptok would still see the raw photo.
+    this.stage.set('generating');
     this.apiClient
       .sculptokGenerate({
         image_id: imageId,
@@ -107,6 +127,7 @@ export class SculptokService {
       })
       .subscribe({
         next: (resp) => {
+          this.stage.set('packaging');
           this.renderService.patchSettings('external_heightmap_path', resp.heightmap_path);
           // Surface the prepped photo + (optional) subject mask so the
           // wizard's preview pane shows what sculptok actually saw.
@@ -125,6 +146,7 @@ export class SculptokService {
             cost_pro_4k: 30,
             cost_normal: 10,
           });
+          this.stage.set('done');
           this.sessionTree.addToast({
             id: crypto.randomUUID(),
             severity: 'success',
@@ -133,9 +155,12 @@ export class SculptokService {
           });
           this.sessionTree.pushHistory('sculptok:generate');
           this.inFlight.set(false);
+          // Reset stage after a short pause so the "Done" state is visible
+          globalThis.setTimeout(() => this.stage.set('idle'), 2000);
         },
         error: (err) => {
           const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
+          this.stage.set('error');
           this.sessionTree.addToast({
             id: crypto.randomUUID(),
             severity: 'error',
@@ -143,6 +168,7 @@ export class SculptokService {
             detail,
           });
           this.inFlight.set(false);
+          globalThis.setTimeout(() => this.stage.set('idle'), 3000);
         },
       });
   }

@@ -1,9 +1,33 @@
 <!-- mopa-heightmap SPA shell -->
 <nav class="app-shell-nav">
-  <a routerLink="/wizard" routerLinkActive="active-link">Wizard</a>
-  <a routerLink="/studio" routerLinkActive="active-link">Studio</a>
+  <a routerLink="/wizard" routerLinkActive="active-link" aria-label="Wizard view">Wizard</a>
+  <a routerLink="/studio" routerLinkActive="active-link" aria-label="Studio view">Studio</a>
+  <a routerLink="/pricing" routerLinkActive="active-link" aria-label="Pricing">Pricing</a>
+  <span class="nav-spacer"></span>
+  <app-credits-badge />
+  @if (authService.isAuthenticated()) {
+    <button type="button" class="nav-auth-btn nav-auth-out" (click)="authService.signOut()">
+      Sign out
+    </button>
+  } @else {
+    <button type="button" class="nav-auth-btn" (click)="authService.authModalOpen.set(true)">
+      Sign in
+    </button>
+  }
+  <button
+    type="button"
+    class="nav-palette-hint"
+    aria-label="Open command palette"
+    title="Open command palette (Ctrl+K)"
+    onclick="document.dispatchEvent(new KeyboardEvent('keydown', {key:'k',ctrlKey:true,bubbles:true}))"
+  >
+    <span aria-hidden="true">⌘K</span>
+  </button>
 </nav>
 
 <main class="app-shell-main">
   <router-outlet />
 </main>
+
+<app-command-palette />
+<app-auth-modal />

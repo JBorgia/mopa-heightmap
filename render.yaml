@@ -1,0 +1,85 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+#
+# Deploy: connect your GitHub repo → Render Dashboard → New → Blueprint
+# Or: render deploy --config render.yaml
+
+services:
+
+  # ── Web API + Angular SPA ──────────────────────────────────────────────────
+  - type: web
+    name: mopa-api
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -e ".[saas]"
+    startCommand: uvicorn apps.api.main:app --host 0.0.0.0 --port $PORT --workers 2
+    healthCheckPath: /health
+    envVars:
+      - key: MOPA_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false           # set in Render dashboard
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SCULPTOK_API_KEY
+        sync: false
+      - key: POLAR_WEBHOOK_SECRET
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: mopa-redis
+          type: redis
+          property: connectionString
+      - key: BLOB_BACKEND
+        value: r2
+      - key: R2_ENDPOINT_URL
+        sync: false           # https://<accountid>.r2.cloudflarestorage.com
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: mopa-blobs
+
+  # ── ARQ background worker ──────────────────────────────────────────────────
+  - type: worker
+    name: mopa-worker
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -e ".[saas]"
+    startCommand: arq apps.api.worker.WorkerSettings
+    envVars:
+      - key: MOPA_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SCULPTOK_API_KEY
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: mopa-redis
+          type: redis
+          property: connectionString
+      - key: BLOB_BACKEND
+        value: r2
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: mopa-blobs
+
+  # ── Managed Redis ──────────────────────────────────────────────────────────
+  - type: redis
+    name: mopa-redis
+    region: oregon
+    plan: free
+    maxmemoryPolicy: allkeys-lru

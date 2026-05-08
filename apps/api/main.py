@@ -12,12 +12,20 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+# Load .env for local dev (no-op when python-dotenv isn't installed or file absent)
+if os.environ.get("MOPA_ENV") != "production":
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).parent.parent.parent / ".env", override=False)
+    except ImportError:
+        pass
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routes import blob, export, mask, plan, profile, render, sculptok, session, targets, upload
+from .routes import blob, export, mask, plan, profile, render, sculptok, session, targets, upload, webhooks
 from .schemas import ApiError, ErrorResponse
 
 # ---------------------------------------------------------------------------
@@ -66,6 +74,7 @@ app.include_router(sculptok.router)
 app.include_router(session.router)
 app.include_router(targets.router)
 app.include_router(upload.router)
+app.include_router(webhooks.router)
 
 # ---------------------------------------------------------------------------
 # Global error handler — always return {error: {code, message, hint?}}

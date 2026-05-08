@@ -49,6 +49,20 @@ def _img_to_png_bytes(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
+def _binary_stl_vertices(data: bytes) -> np.ndarray:
+    """Return an ``(n, 3, 3)`` float32 view of binary STL triangle vertices."""
+    tri_count = struct.unpack_from("<I", data, 80)[0]
+    vertices = np.empty((tri_count, 3, 3), dtype=np.float32)
+    offset = 84
+    for idx in range(tri_count):
+        offset += 12  # skip normal
+        for vertex_idx in range(3):
+            vertices[idx, vertex_idx] = struct.unpack_from("<3f", data, offset)
+            offset += 12
+        offset += 2  # attribute byte count
+    return vertices
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -153,6 +167,15 @@ def test_render_unknown_image_returns_404(client):
     assert resp.status_code == 404
 
 
+def test_render_invalid_profile_returns_422(client, uploaded_image_id):
+    resp = client.post(
+        "/render",
+        json={"image_id": uploaded_image_id, "profile_name": "does-not-exist"},
+    )
+    assert resp.status_code == 422
+    assert "Profile not found" in resp.json()["detail"]
+
+
 def test_blob_fetch_returns_png(client, uploaded_image_id):
     render_resp = client.post("/render", json={"image_id": uploaded_image_id})
     assert render_resp.status_code == 200
@@ -196,6 +219,20 @@ def test_export_png_8bit(client, uploaded_image_id):
     assert resp.status_code == 200
 
 
+def test_click_mask_rejects_out_of_bounds_coordinates(client, uploaded_image_id):
+    resp = client.post(
+        "/mask/click",
+        json={
+            "image_id": uploaded_image_id,
+            "x": 9999,
+            "y": 9999,
+            "label": "positive",
+        },
+    )
+    assert resp.status_code == 422
+    assert "outside image bounds" in resp.json()["detail"]
+
+
 def test_export_stl_returns_binary_mesh(client, uploaded_image_id):
     """Regression for the numpy-stl ``Mode`` import path.
 
@@ -216,6 +253,30 @@ def test_export_stl_returns_binary_mesh(client, uploaded_image_id):
     assert resp.headers["content-type"] == "model/stl"
     assert resp.headers["content-disposition"].endswith("filename=heightmap.stl")
     assert len(resp.content) > 0
+
+
+def test_export_stl_honors_base_thickness_mm(client, uploaded_image_id):
+    render_resp = client.post("/render", json={"image_id": uploaded_image_id})
+    hid = render_resp.json()["heightmap_id"]
+
+    no_base = client.post(
+        "/export/stl",
+        json={"heightmap_id": hid, "z_scale_mm": 1.0, "base_thickness_mm": 0.0},
+    )
+    with_base = client.post(
+        "/export/stl",
+        json={"heightmap_id": hid, "z_scale_mm": 1.0, "base_thickness_mm": 2.5},
+    )
+
+    assert no_base.status_code == 200, no_base.text
+    assert with_base.status_code == 200, with_base.text
+
+    no_base_vertices = _binary_stl_vertices(no_base.content)
+    with_base_vertices = _binary_stl_vertices(with_base.content)
+
+    assert float(no_base_vertices[:, :, 2].min()) >= -1e-6
+    assert float(with_base_vertices[:, :, 2].min()) == pytest.approx(-2.5, abs=1e-5)
+    assert with_base_vertices.shape[0] > no_base_vertices.shape[0]
 
 
 def test_render_response_includes_conditioned_and_render_mask_fields(client, uploaded_image_id):
@@ -290,6 +351,219 @@ def test_export_bundle_lbrn2_without_plan_id_is_422(client, uploaded_image_id):
     )
     assert resp.status_code == 422
     assert "plan_id" in resp.json()["detail"]
+
+
+def test_resolve_lightburn_card_path_prefers_profile_override(monkeypatch, tmp_path):
+    import apps.api.service_adapter as adapter
+
+    default_card = tmp_path / f"{adapter.DEFAULT_PROFILE_NAME}.lbrn2"
+    default_card.write_text("<LightBurnProject FormatVersion=\"1\" />", encoding="utf-8")
+    override_card = tmp_path / "CustomCard.lbrn2"
+    override_card.write_text("<LightBurnProject FormatVersion=\"1\" />", encoding="utf-8")
+
+    monkeypatch.setattr(adapter, "DEFAULT_CARDS_DIR", tmp_path)
+
+    assert adapter._resolve_lightburn_card_path({}) == default_card
+    assert adapter._resolve_lightburn_card_path({"lightburn_card": "CustomCard"}) == override_card
+
+
+def test_plan_and_lbrn2_export_use_profile_lightburn_card_override(
+    client,
+    uploaded_image_id,
+    monkeypatch,
+    tmp_path,
+):
+    import io as _io
+    import os
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    import apps.api.service_adapter as adapter
+
+    profiles_dir = tmp_path / "profiles"
+    cards_dir = tmp_path / "cards"
+    profiles_dir.mkdir()
+    cards_dir.mkdir()
+
+    profile_path = profiles_dir / "override_profile.yaml"
+    profile_path.write_text(
+        "name: Override Profile\n"
+        "lightburn_card: CustomCard\n"
+        "heightmap: {}\n",
+        encoding="utf-8",
+    )
+
+    custom_card = cards_dir / "CustomCard.lbrn2"
+    custom_card.write_text(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<LightBurnProject AppVersion=\"9.9.9\" FormatVersion=\"1\">\n"
+        "  <CutSetting type=\"Scan\">\n"
+        "    <index Value=\"17\"/>\n"
+        "    <name Value=\"C01\"/>\n"
+        "    <maxPower Value=\"42\"/>\n"
+        "    <speed Value=\"900\"/>\n"
+        "    <frequency Value=\"30000\"/>\n"
+        "    <QPulseWidth Value=\"120\"/>\n"
+        "    <interval Value=\"0.03\"/>\n"
+        "  </CutSetting>\n"
+        "</LightBurnProject>\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("MOPA_HEIGHTMAP_PROFILES", os.fspath(profiles_dir))
+    monkeypatch.setattr(adapter, "DEFAULT_CARDS_DIR", cards_dir)
+
+    render_resp = client.post(
+        "/render",
+        json={"image_id": uploaded_image_id, "profile_name": "override_profile"},
+    )
+    assert render_resp.status_code == 200, render_resp.text
+    hid = render_resp.json()["heightmap_id"]
+
+    plan_resp = client.post(
+        "/plan",
+        json={
+            "image_id": uploaded_image_id,
+            "heightmap_id": hid,
+            "profile_name": "override_profile",
+        },
+    )
+    assert plan_resp.status_code == 200, plan_resp.text
+    plan_body = plan_resp.json()
+    assert plan_body["passes"], plan_body
+    assert plan_body["passes"][0]["label"] == "form: C01"
+    assert plan_body["passes"][0]["pass_number"] == 17
+
+    export_resp = client.post(
+        "/export/lbrn2",
+        json={
+            "plan_id": plan_body["plan_id"],
+            "heightmap_id": hid,
+            "profile_name": "override_profile",
+        },
+    )
+    assert export_resp.status_code == 200, export_resp.text
+
+    zf = zipfile.ZipFile(_io.BytesIO(export_resp.content))
+    names = set(zf.namelist())
+    assert "project.lbrn2" in names
+    assert "pass_00_form.png" in names
+
+    root = ET.fromstring(zf.read("project.lbrn2"))
+    assert root.attrib.get("AppVersion") == "9.9.9"
+
+    cut_nodes = list(root.findall("CutSetting")) + list(root.findall("CutSetting_Img"))
+    exported_layers = [
+        {
+            child.tag: child.attrib.get("Value")
+            for child in cut
+            if "Value" in child.attrib
+        }
+        for cut in cut_nodes
+    ]
+    assert any(
+        layer.get("index") == "17"
+        and layer.get("name") == "C01"
+        and layer.get("maxPower") == "42"
+        and layer.get("speed") == "900"
+        for layer in exported_layers
+    ), exported_layers
+
+
+def test_plan_and_lbrn2_export_honor_profile_kind_color_overrides(
+    client,
+    uploaded_image_id,
+    monkeypatch,
+    tmp_path,
+):
+    import io as _io
+    import os
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    import apps.api.service_adapter as adapter
+
+    profiles_dir = tmp_path / "profiles"
+    cards_dir = tmp_path / "cards"
+    profiles_dir.mkdir()
+    cards_dir.mkdir()
+
+    (profiles_dir / "override_profile.yaml").write_text(
+        "name: Override Profile\n"
+        "lightburn_card: CustomCard\n"
+        "kind_color_overrides:\n"
+        "  form: CustomDepth\n"
+        "heightmap: {}\n",
+        encoding="utf-8",
+    )
+
+    (cards_dir / "CustomCard.lbrn2").write_text(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<LightBurnProject AppVersion=\"9.9.9\" FormatVersion=\"1\">\n"
+        "  <CutSetting type=\"Scan\">\n"
+        "    <index Value=\"23\"/>\n"
+        "    <name Value=\"CustomDepth\"/>\n"
+        "    <maxPower Value=\"38\"/>\n"
+        "    <speed Value=\"777\"/>\n"
+        "    <frequency Value=\"25000\"/>\n"
+        "    <QPulseWidth Value=\"111\"/>\n"
+        "    <interval Value=\"0.04\"/>\n"
+        "  </CutSetting>\n"
+        "</LightBurnProject>\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("MOPA_HEIGHTMAP_PROFILES", os.fspath(profiles_dir))
+    monkeypatch.setattr(adapter, "DEFAULT_CARDS_DIR", cards_dir)
+
+    render_resp = client.post(
+        "/render",
+        json={"image_id": uploaded_image_id, "profile_name": "override_profile"},
+    )
+    assert render_resp.status_code == 200, render_resp.text
+    hid = render_resp.json()["heightmap_id"]
+
+    plan_resp = client.post(
+        "/plan",
+        json={
+            "image_id": uploaded_image_id,
+            "heightmap_id": hid,
+            "profile_name": "override_profile",
+        },
+    )
+    assert plan_resp.status_code == 200, plan_resp.text
+    plan_body = plan_resp.json()
+    assert plan_body["passes"], plan_body
+    assert plan_body["passes"][0]["label"] == "form: CustomDepth"
+    assert plan_body["passes"][0]["pass_number"] == 23
+
+    export_resp = client.post(
+        "/export/lbrn2",
+        json={
+            "plan_id": plan_body["plan_id"],
+            "heightmap_id": hid,
+            "profile_name": "override_profile",
+        },
+    )
+    assert export_resp.status_code == 200, export_resp.text
+
+    root = ET.fromstring(zipfile.ZipFile(_io.BytesIO(export_resp.content)).read("project.lbrn2"))
+    cut_nodes = list(root.findall("CutSetting")) + list(root.findall("CutSetting_Img"))
+    exported_layers = [
+        {
+            child.tag: child.attrib.get("Value")
+            for child in cut
+            if "Value" in child.attrib
+        }
+        for cut in cut_nodes
+    ]
+    assert any(
+        layer.get("index") == "23"
+        and layer.get("name") == "CustomDepth"
+        and layer.get("maxPower") == "38"
+        and layer.get("speed") == "777"
+        for layer in exported_layers
+    ), exported_layers
 
 
 def test_export_bundle_includes_reference_artifacts_when_supplied(client, uploaded_image_id):

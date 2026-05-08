@@ -19,6 +19,18 @@ from .. import blob_store
 router = APIRouter(prefix="/export", tags=["export"])
 
 
+def _append_quad(
+    triangles: list[list[list[float]]],
+    p0: list[float],
+    p1: list[float],
+    p2: list[float],
+    p3: list[float],
+) -> None:
+    """Append two STL triangles that form a quad."""
+    triangles.append([p0, p1, p2])
+    triangles.append([p0, p2, p3])
+
+
 def _build_stl_bytes(heightmap_id: str, z_scale_mm: float, base_thickness_mm: float) -> bytes:
     """Render a heightmap blob into binary STL bytes.
 
@@ -39,7 +51,7 @@ def _build_stl_bytes(heightmap_id: str, z_scale_mm: float, base_thickness_mm: fl
 
     h, w = hm.shape
     z = hm * z_scale_mm
-    _ = -base_thickness_mm  # base extrusion not yet wired through; reserved.
+    z_base = -float(base_thickness_mm)
 
     # Build quad mesh as two triangles per cell.
     verts: list[list[list[float]]] = []
@@ -53,6 +65,55 @@ def _build_stl_bytes(heightmap_id: str, z_scale_mm: float, base_thickness_mm: fl
             z11 = float(z[r + 1, c + 1])
             verts.append([[x0, y0, z00], [x1, y0, z10], [x0, y1, z01]])
             verts.append([[x1, y0, z10], [x1, y1, z11], [x0, y1, z01]])
+
+    if base_thickness_mm > 0.0 and h >= 2 and w >= 2:
+        max_x = float(w - 1)
+        max_y = float(h - 1)
+
+        # Bottom face.
+        _append_quad(
+            verts,
+            [0.0, 0.0, z_base],
+            [0.0, max_y, z_base],
+            [max_x, max_y, z_base],
+            [max_x, 0.0, z_base],
+        )
+
+        # Front and back walls.
+        for c in range(w - 1):
+            x0, x1 = float(c), float(c + 1)
+            _append_quad(
+                verts,
+                [x0, 0.0, z_base],
+                [x1, 0.0, z_base],
+                [x1, 0.0, float(z[0, c + 1])],
+                [x0, 0.0, float(z[0, c])],
+            )
+            _append_quad(
+                verts,
+                [x0, max_y, z_base],
+                [x0, max_y, float(z[h - 1, c])],
+                [x1, max_y, float(z[h - 1, c + 1])],
+                [x1, max_y, z_base],
+            )
+
+        # Left and right walls.
+        for r in range(h - 1):
+            y0, y1 = float(r), float(r + 1)
+            _append_quad(
+                verts,
+                [0.0, y0, z_base],
+                [0.0, y0, float(z[r, 0])],
+                [0.0, y1, float(z[r + 1, 0])],
+                [0.0, y1, z_base],
+            )
+            _append_quad(
+                verts,
+                [max_x, y0, z_base],
+                [max_x, y1, z_base],
+                [max_x, y1, float(z[r + 1, w - 1])],
+                [max_x, y0, float(z[r, w - 1])],
+            )
 
     arr = np.array(verts, dtype=np.float32)
     m = stl_mesh.Mesh(np.zeros(len(arr), dtype=stl_mesh.Mesh.dtype))
@@ -95,6 +156,8 @@ async def export_lbrn2(req: ExportLbrn2Request) -> Response:
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
     return Response(
@@ -172,6 +235,8 @@ async def export_bundle(req: ExportBundleRequest) -> Response:
                 )
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except (FileNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
             # do_export_lbrn2 returns its own zip — inline its members so the
             # outer zip is flat and LightBurn opens project.lbrn2 directly.
             with zipfile.ZipFile(io.BytesIO(inner), mode="r") as inner_zf:

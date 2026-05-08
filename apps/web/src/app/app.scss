@@ -2,7 +2,7 @@
 	display: flex;
 	gap: 0.75rem;
 	align-items: center;
-	padding: 1rem 1.25rem;
+	padding: 0.75rem 1.25rem;
 	border-bottom: 1px solid var(--border-default);
 	background: var(--bg-surface);
 }
@@ -11,15 +11,76 @@
 	border-radius: 999px;
 	border: 1px solid var(--border-input);
 	color: var(--text-primary);
-	padding: 0.55rem 0.95rem;
+	padding: 0.45rem 0.9rem;
 	text-decoration: none;
 	font-weight: 600;
+	font-size: 0.9rem;
+	transition: background 120ms, color 120ms;
+}
+
+.app-shell-nav a:hover:not(.active-link) {
+	background: var(--bg-sunken);
 }
 
 .app-shell-nav a.active-link {
 	background: var(--action-bg);
 	border-color: var(--action-bg);
 	color: var(--action-fg);
+}
+
+.nav-spacer {
+	flex: 1;
+}
+
+.nav-palette-hint {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	border: 1px solid var(--border-input);
+	border-radius: 0.5rem;
+	background: var(--bg-sunken);
+	color: var(--text-muted);
+	padding: 0.3rem 0.65rem;
+	font: inherit;
+	font-size: 0.75rem;
+	font-weight: 600;
+	cursor: pointer;
+	letter-spacing: 0.02em;
+	transition: background 120ms, color 120ms;
+}
+
+.nav-palette-hint:hover {
+	background: var(--bg-surface);
+	color: var(--text-primary);
+}
+
+.nav-auth-btn {
+	border-radius: 999px;
+	border: 1px solid var(--border-input);
+	background: var(--bg-sunken);
+	color: var(--text-primary);
+	padding: 0.3rem 0.85rem;
+	font: inherit;
+	font-size: 0.8rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 120ms, color 120ms;
+}
+
+.nav-auth-btn:hover {
+	background: var(--action-bg);
+	color: var(--action-fg);
+	border-color: var(--action-bg);
+}
+
+.nav-auth-out {
+	color: var(--text-muted);
+}
+
+.nav-auth-out:hover {
+	background: var(--bg-surface);
+	color: var(--text-primary);
+	border-color: var(--border-input);
 }
 
 .app-shell-main {

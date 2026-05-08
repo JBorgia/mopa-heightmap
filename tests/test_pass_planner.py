@@ -110,6 +110,43 @@ def test_kind_color_overrides_redirect_pass_to_different_card_row():
     assert forms[0].cut_setting.name == alternative
 
 
+def test_kind_color_overrides_support_noncanonical_form_layer_names():
+    profile = _profile()
+    renamed = profile.entries[5]
+    replacement = type(renamed)(
+        index=renamed.index,
+        name="CustomDepth",
+        max_power=renamed.max_power,
+        speed=renamed.speed,
+        frequency=renamed.frequency,
+        q_pulse_width=renamed.q_pulse_width,
+        interval=renamed.interval,
+        min_power=renamed.min_power,
+        max_power_2=renamed.max_power_2,
+        priority=renamed.priority,
+        flood_fill=renamed.flood_fill,
+        bidir=renamed.bidir,
+        raw=dict(renamed.raw),
+    )
+    custom_profile = type(profile)(
+        name=profile.name,
+        source_path=profile.source_path,
+        machine_label=profile.machine_label,
+        wattage=profile.wattage,
+        app_version=profile.app_version,
+        entries=[replacement if entry.index == renamed.index else entry for entry in profile.entries],
+        thumbnail_b64=profile.thumbnail_b64,
+    )
+    plan = plan_passes(
+        heightmap=_heightmap(),
+        profile=custom_profile,
+        kind_color_overrides={PASS_KIND_FORM: "CustomDepth"},
+    )
+    forms = plan.by_kind(PASS_KIND_FORM)
+    assert len(forms) == 1
+    assert forms[0].cut_setting.name == "CustomDepth"
+
+
 def test_pass_dropped_silently_when_color_name_missing():
     profile = _profile()
     plan = plan_passes(

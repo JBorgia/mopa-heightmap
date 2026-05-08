@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 
 import { Accordion, AccordionContent, AccordionHeader, AccordionPanel } from 'primeng/accordion';
 import { Card } from 'primeng/card';
@@ -10,7 +10,7 @@ import { ExportService } from '../../core/state/export.service';
 import { MaskService } from '../../core/state/mask.service';
 import { PlanService } from '../../core/state/plan.service';
 import { RenderService } from '../../core/state/render.service';
-import { SculptokService } from '../../core/state/sculptok.service';
+import { SCULPTOK_STAGE_LABELS, SculptokService } from '../../core/state/sculptok.service';
 import { TargetService } from '../../core/state/target.service';
 import { SessionService } from '../../core/state/session.service';
 import { SessionTreeService } from '../../core/state/session-tree.service';
@@ -93,17 +93,28 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
         <!-- Left: accordion controls -->
         <main class="studio-controls">
           <!-- Upload strip (always visible) -->
-          <div class="upload-strip">
-            <label for="studio-upload" class="upload-label">Source image</label>
+          <div class="upload-strip"
+            [class.upload-strip-active]="dragOver()"
+            [class.upload-strip-loaded]="!!session().imageId"
+            (dragover)="onDragOver($event)"
+            (dragleave)="onDragLeave()"
+            (drop)="onDrop($event)"
+          >
+            <label for="studio-upload" class="upload-label">
+              @if (sessionService.uploadInFlight()) {
+                Uploading…
+              } @else if (session().sourceMeta; as meta) {
+                {{ meta.w }} × {{ meta.h }} px
+              } @else {
+                Drop image or browse →
+              }
+            </label>
             <input
               id="studio-upload"
               type="file"
               accept="image/*"
               (change)="onFileSelected($event)"
             />
-            @if (sessionService.uploadInFlight()) {
-              <span class="hint">Uploading…</span>
-            }
           </div>
 
           <p-accordion [multiple]="true" [value]="['mask', 'render', 'refinement']">
@@ -349,9 +360,24 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       <button type="button"
                         [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight()"
                         (click)="sculptokGenerate()">
-                        @if (sculptokService.inFlight()) { Sculptok generating… } @else { Generate via Sculptok }
+                        @if (sculptokService.inFlight()) { Generating… } @else { Generate via Sculptok }
                       </button>
                     </div>
+
+                    @if (sculptokService.inFlight() || sculptokService.stage() === 'done' || sculptokService.stage() === 'error') {
+                      <div class="sculptok-progress" role="status" aria-live="polite">
+                        @for (step of sculptokProgressSteps; track step.stage) {
+                          <div class="progress-step"
+                            [class.step-done]="isStepDone(step.stage)"
+                            [class.step-active]="sculptokService.stage() === step.stage"
+                            [class.step-error]="sculptokService.stage() === 'error' && step.stage === sculptokService.stage()">
+                            <span class="step-dot" aria-hidden="true"></span>
+                            <span class="step-label">{{ step.label }}</span>
+                          </div>
+                        }
+                      </div>
+                    }
+
                     <div class="field">
                       <label for="hm-upload">Or upload a heightmap PNG</label>
                       <input id="hm-upload" type="file"
@@ -361,7 +387,7 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     @if (sculptokService.credits(); as c) {
                       @if (c.configured) {
                         <p class="hint">
-                          Sculptok credits: {{ c.balance }} (each pro/2k call costs {{ c.cost_pro_2k }})
+                          {{ c.balance }} credits remaining
                         </p>
                       } @else {
                         <p class="hint">
@@ -678,9 +704,21 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       align-items: center;
       gap: 0.75rem;
       padding: 0.75rem 1rem;
-      border: 1px solid var(--border-default);
+      border: 1px dashed var(--border-default);
       border-radius: 0.75rem;
       background: var(--bg-surface);
+      transition: border-color 150ms, background 150ms;
+      cursor: default;
+    }
+
+    .upload-strip-active {
+      border-color: var(--action-bg);
+      background: color-mix(in srgb, var(--action-bg) 5%, var(--bg-surface));
+    }
+
+    .upload-strip-loaded {
+      border-style: solid;
+      border-color: #27ae60;
     }
 
     .upload-label {
@@ -688,10 +726,57 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       font-size: 0.9rem;
       white-space: nowrap;
       color: var(--text-primary);
+      cursor: pointer;
     }
 
     .upload-strip input[type="file"] {
       flex: 1;
+    }
+
+    /* ── Sculptok progress strip (Studio) ─────────────────────────────── */
+    .sculptok-progress {
+      display: flex;
+      gap: 0;
+      margin: 0.4rem 0;
+      border: 1px solid var(--border-default);
+      border-radius: 0.5rem;
+      overflow: hidden;
+    }
+
+    .progress-step {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      background: var(--bg-sunken);
+      border-right: 1px solid var(--border-default);
+      transition: background 200ms, color 200ms;
+    }
+
+    .progress-step:last-child { border-right: 0; }
+
+    .step-dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 999px;
+      background: var(--border-input);
+      flex-shrink: 0;
+      transition: background 200ms;
+    }
+
+    .progress-step.step-done { background: color-mix(in srgb, #27ae60 8%, var(--bg-surface)); color: #27ae60; }
+    .progress-step.step-done .step-dot { background: #27ae60; }
+    .progress-step.step-active { background: color-mix(in srgb, var(--action-bg) 10%, var(--bg-surface)); color: var(--action-bg); font-weight: 600; }
+    .progress-step.step-active .step-dot { background: var(--action-bg); animation: pulse-dot 1s ease-in-out infinite; }
+    .progress-step.step-error { background: color-mix(in srgb, #e74c3c 8%, var(--bg-surface)); color: #e74c3c; }
+    .progress-step.step-error .step-dot { background: #e74c3c; }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(0.8); }
     }
 
     .panel-body {
@@ -929,6 +1014,14 @@ export class StudioShellComponent {
   protected readonly heightmapPolarities = HEIGHTMAP_POLARITIES;
   protected readonly signatureCorners = SIGNATURE_CORNERS;
   protected readonly backgroundPatterns = BACKGROUND_PATTERNS;
+  protected readonly sculptokStageLabels = SCULPTOK_STAGE_LABELS;
+  protected readonly dragOver = signal(false);
+  protected readonly sculptokProgressSteps = [
+    { stage: 'preparing' as const,  label: 'Preparing' },
+    { stage: 'generating' as const, label: 'Generating' },
+    { stage: 'packaging' as const,  label: 'Packaging' },
+    { stage: 'done' as const,       label: 'Done' },
+  ];
 
   protected readonly sessionTree = inject(SessionTreeService);
   protected readonly sessionService = inject(SessionService);
@@ -983,6 +1076,30 @@ export class StudioShellComponent {
     if (!name) return;
     if (!window.confirm(`Delete profile "${name}"? This only removes user-scope profiles; shipped profiles are protected.`)) return;
     this.sessionService.deleteCurrentProfile();
+  }
+
+  protected onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(true);
+  }
+
+  protected onDragLeave(): void {
+    this.dragOver.set(false);
+  }
+
+  protected onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(false);
+    const file = event.dataTransfer?.files.item(0);
+    if (!file || !file.type.startsWith('image/')) return;
+    this.sessionService.uploadImage(file);
+  }
+
+  protected isStepDone(stage: 'preparing' | 'generating' | 'packaging' | 'done'): boolean {
+    const order = ['preparing', 'generating', 'packaging', 'done'] as const;
+    const current = this.sculptokService.stage();
+    if (current === 'error' || current === 'idle') return false;
+    return order.indexOf(stage) < order.indexOf(current as typeof stage);
   }
 
   protected onFileSelected(event: Event): void {

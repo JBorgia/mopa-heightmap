@@ -61,6 +61,57 @@ from .schemas import (
     UploadResponse,
 )
 
+
+def _load_profile_payload(profile_name: Optional[str]) -> Dict[str, Any]:
+    """Load a material profile or return an empty payload when omitted.
+
+    Missing or invalid profiles must propagate as explicit user-input
+    errors so the route layer can return 422 instead of silently falling
+    back to engine defaults.
+    """
+    if not profile_name:
+        return {}
+    return load_profile(profile_name)
+
+
+def _resolve_lightburn_card_path(profile_payload: Optional[Dict[str, Any]] = None) -> Path:
+    """Resolve the LightBurn color-card path for planning/export.
+
+    Material profiles are YAML files like ``mopa_60w_brass``; they are not
+    LightBurn card filenames. A profile may opt into a specific card via the
+    top-level ``lightburn_card`` key. Otherwise we use the repository default
+    machine card.
+    """
+    payload = profile_payload or {}
+    card_name = payload.get("lightburn_card")
+    if isinstance(card_name, str) and card_name.strip():
+        card_stem = card_name.removesuffix(".lbrn2")
+    else:
+        card_stem = DEFAULT_PROFILE_NAME
+    card_path = DEFAULT_CARDS_DIR / f"{card_stem}.lbrn2"
+    if not card_path.exists():
+        raise FileNotFoundError(f"LightBurn card not found: {card_path.name}")
+    return card_path
+
+
+def _profile_kind_color_overrides(profile_payload: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    """Extract per-pass LightBurn row overrides from a material profile."""
+    payload = profile_payload or {}
+    raw = payload.get("kind_color_overrides")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("kind_color_overrides must be a mapping of pass kind to LightBurn row name")
+
+    overrides: Dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("kind_color_overrides keys must be non-empty strings")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("kind_color_overrides values must be non-empty strings")
+        overrides[key.strip()] = value.strip()
+    return overrides
+
 # ---------------------------------------------------------------------------
 # Process-singleton service
 # ---------------------------------------------------------------------------
@@ -133,10 +184,7 @@ def do_render(
 
     profile_data: Dict[str, Any] = {}
     if profile_name:
-        try:
-            profile_data = load_profile(profile_name)
-        except Exception:
-            profile_data = {}
+        profile_data = _load_profile_payload(profile_name)
 
     merged = merge_profile_settings(profile_data, heightmap_settings_to_dict(settings))
     svc = get_service()
@@ -144,7 +192,12 @@ def do_render(
     result: PreviewResult = svc.render(image, merged)
 
     heightmap_id = blob_store.store_heightmap(result.heightmap)
-    preview_id = blob_store.store_image(result.preview_image, mode="8bit")
+    # Store the plain greyscale depth map (not the diagnostic composite panel)
+    # so the before/after slider shows just the depth map on the right.
+    _gray = Image.fromarray(
+        np.round(np.clip(result.heightmap, 0.0, 1.0) * 255).astype(np.uint8), mode="L"
+    ).convert("RGB")
+    preview_id = blob_store.store_image(_gray, mode="8bit")
 
     conditioned_id: Optional[str] = None
     if result.conditioned is not None:
@@ -234,8 +287,16 @@ def do_click_mask(
     else:
         clicker, _ = load_clicker(effective_key, device="cpu")
 
+    if not (0 <= x < image.width and 0 <= y < image.height):
+        raise ValueError(
+            f"Click coordinate ({x}, {y}) is outside image bounds "
+            f"{image.width}x{image.height}"
+        )
+
     int_label = POINT_LABEL_POSITIVE if label == "positive" else POINT_LABEL_NEGATIVE
-    grown = clicker.infer(image, [(x, y)], [POINT_LABEL_POSITIVE]).astype(np.float32)
+    grown = clicker.infer(image, [(x, y)], [int_label]).astype(np.float32)
+    if grown.ndim != 2:
+        raise ValueError(f"Click masker must return a 2-D mask; got shape {grown.shape}")
     h, w = grown.shape
 
     base = np.zeros((h, w), dtype=np.float32)
@@ -341,10 +402,7 @@ def do_export_lbrn2(
 
     profile_payload: Dict[str, Any] = {}
     if profile_name:
-        try:
-            profile_payload = load_profile(profile_name)
-        except Exception:
-            profile_payload = {}
+        profile_payload = _load_profile_payload(profile_name)
 
     box_w = profile_payload.get("print_width_mm")
     box_h = profile_payload.get("print_height_mm")
@@ -576,10 +634,8 @@ def do_plan(
     if hm is None:
         raise KeyError(f"Unknown heightmap_id: {heightmap_id!r}")
 
-    card_stem = (profile_name or DEFAULT_PROFILE_NAME).removesuffix(".lbrn2")
-    card_path = DEFAULT_CARDS_DIR / f"{card_stem}.lbrn2"
-    if not card_path.exists():
-        card_path = DEFAULT_CARDS_DIR / f"{DEFAULT_PROFILE_NAME}.lbrn2"
+    profile_payload = _load_profile_payload(profile_name)
+    card_path = _resolve_lightburn_card_path(profile_payload)
     material_profile = load_lightburn_card(card_path)
 
     color_masks: Dict[str, np.ndarray] = {}
@@ -594,6 +650,7 @@ def do_plan(
         heightmap=hm,
         profile=material_profile,
         mask_per_color=color_masks,
+        kind_color_overrides=_profile_kind_color_overrides(profile_payload),
     )
     plan_id = store_plan(result)
 

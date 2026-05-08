@@ -124,6 +124,8 @@ _KNOWN_TOP_LEVEL_KEYS = {
     "name",
     "machine",
     "lightburn_mode",
+    "lightburn_card",
+    "kind_color_overrides",
     "black_is_deep",
     "heightmap",
     "lightburn_starting_point",
@@ -248,6 +250,17 @@ def validate_profile(data: Dict[str, Any], profile_path: str = "<memory>") -> No
 
     if "black_is_deep" in data and not isinstance(data["black_is_deep"], bool):
         errors.append("black_is_deep must be a boolean")
+
+    if "kind_color_overrides" in data:
+        overrides = data["kind_color_overrides"]
+        if not isinstance(overrides, dict):
+            errors.append("kind_color_overrides must be a mapping")
+        else:
+            for key, value in overrides.items():
+                if not isinstance(key, str) or not key.strip():
+                    errors.append("kind_color_overrides keys must be non-empty strings")
+                if not isinstance(value, str) or not value.strip():
+                    errors.append("kind_color_overrides values must be non-empty strings")
 
     heightmap = data.get("heightmap", {})
     if not isinstance(heightmap, dict):

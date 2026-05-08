@@ -193,7 +193,8 @@ tests/                 Backend pytest suite (266 passing).
 memory/                Project memory for future agent sessions — keep MEMORY.md
                        up to date so the next agent session has the right
                        architectural context.
-docs/                  Implementation plan + UI migration brief.
+docs/                  Implementation plan, UI migration brief, and
+                       LIGHTBURN_FILE_FORMAT.md reference.
 ```
 
 ---

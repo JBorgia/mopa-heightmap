@@ -10,5 +10,9 @@ export const routes: Routes = [
     path: 'studio',
     loadComponent: () => import('./features/studio/studio-shell.component').then(m => m.StudioShellComponent),
   },
+  {
+    path: 'pricing',
+    loadComponent: () => import('./features/pricing/pricing-page.component').then(m => m.PricingPageComponent),
+  },
   { path: '**', redirectTo: '/wizard' },
 ];

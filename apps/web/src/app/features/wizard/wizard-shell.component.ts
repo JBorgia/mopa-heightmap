@@ -7,6 +7,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 
 import { SharedModule } from 'primeng/api';
@@ -16,13 +17,15 @@ import { Splitter } from 'primeng/splitter';
 import { ApiClientService } from '../../core/api/api-client.service';
 import type { HeightmapSettings } from '../../core/api/api-types';
 import { InfoTipComponent } from '../../core/ui/info-tip.component';
+import { AuthService } from '../../core/saas/auth.service';
 import { ExportService } from '../../core/state/export.service';
 import { MaskService } from '../../core/state/mask.service';
 import { PlanService } from '../../core/state/plan.service';
 import { RenderService } from '../../core/state/render.service';
-import { SculptokService } from '../../core/state/sculptok.service';
+import { SCULPTOK_STAGE_LABELS, SculptokService } from '../../core/state/sculptok.service';
 import { SessionService } from '../../core/state/session.service';
 import { SessionTreeService } from '../../core/state/session-tree.service';
+import { TargetService } from '../../core/state/target.service';
 import { MaskBackend, ToastMessage } from '../../core/state/studio-state';
 
 export const WIZARD_PAGE_LABELS = [
@@ -125,26 +128,95 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
               <!-- Page 0: Upload -->
               @if (ui().wizardPage === 0) {
                 <h2>{{ wizardPageLabels[0] }}</h2>
-                <p>{{ stageSummaries[0] }}</p>
+
+                @if (showOnboarding()) {
+                  <div class="onboarding-banner" role="note">
+                    <div class="onboarding-text">
+                      <strong>How it works:</strong>
+                      Drop a portrait, coin, logo, or pet photo below. We'll convert it into a
+                      greyscale depth map — bright areas engrave shallow, dark areas engrave deep —
+                      and bundle it into a ready-to-fire LightBurn project. No settings knowledge needed.
+                    </div>
+                    <button type="button" class="onboarding-dismiss" (click)="dismissOnboarding()" aria-label="Dismiss tip">×</button>
+                  </div>
+                }
+
                 <div class="wizard-controls">
+                  <div class="drop-zone"
+                    [class.drop-zone-active]="dragOver()"
+                    [class.drop-zone-loaded]="!!session().imageId"
+                    (dragover)="onDragOver($event)"
+                    (dragleave)="onDragLeave()"
+                    (drop)="onDrop($event)"
+                    role="region"
+                    aria-label="Image upload area"
+                  >
+                    @if (sessionService.uploadInFlight()) {
+                      <div class="drop-zone-state">
+                        <span class="drop-zone-icon" aria-hidden="true">⏳</span>
+                        <span>Uploading…</span>
+                      </div>
+                    } @else if (session().sourceMeta; as meta) {
+                      <div class="drop-zone-state">
+                        <span class="drop-zone-icon" aria-hidden="true">✓</span>
+                        <span>{{ meta.w }} × {{ meta.h }} px · {{ meta.bytes | number }} bytes</span>
+                        <span class="muted">Drop another image to replace</span>
+                      </div>
+                    } @else {
+                      <div class="drop-zone-state">
+                        <span class="drop-zone-icon" aria-hidden="true">↑</span>
+                        <strong>Drop a photo here</strong>
+                        <span class="muted">or use the button below — JPG, PNG, WEBP accepted</span>
+                      </div>
+                    }
+                  </div>
                   <div class="control-group">
-                    <label for="wizard-upload">Source image</label>
+                    <label for="wizard-upload" class="visually-hidden">Choose image file</label>
                     <input
                       id="wizard-upload"
                       type="file"
                       accept="image/*"
                       (change)="onFileSelected($event)"
                     />
-                    <p class="muted">
-                      @if (sessionService.uploadInFlight()) {
-                        Uploading…
-                      } @else if (session().sourceMeta; as meta) {
-                        Ready: {{ meta.w }} × {{ meta.h }} px ({{ meta.bytes | number }} bytes)
-                      } @else {
-                        Upload an image to begin.
-                      }
-                    </p>
                   </div>
+
+                  @if (targetService.presets().length > 0) {
+                    <div class="control-group">
+                      <label>What are you engraving?</label>
+                      <div class="target-chips" role="group" aria-label="Target object preset">
+                        @for (preset of targetService.presets(); track preset.name) {
+                          <button
+                            type="button"
+                            class="target-chip"
+                            [class.active]="targetService.active() === preset.name"
+                            (click)="onTargetSelect(preset.name)"
+                          >
+                            {{ preset.display_name }}
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  }
+
+                  @if (session().imageId && sculptokService.credits()?.configured) {
+                    <div class="hero-cta-row">
+                      <button
+                        type="button"
+                        class="hero-cta-btn"
+                        [disabled]="sculptokService.inFlight() || renderService.inFlight() || chainStage() !== 'idle' || creditsExhausted()"
+                        (click)="generateAndRenderChain()"
+                      >
+                        @if (chainStage() === 'generating') {
+                          Generating depth map…
+                        } @else if (chainStage() === 'rendering') {
+                          Rendering preview…
+                        } @else {
+                          Generate &amp; package →
+                        }
+                      </button>
+                      <span class="hero-cta-hint">Full pipeline — depth map → render → export ready</span>
+                    </div>
+                  }
                 </div>
               }
 
@@ -184,7 +256,12 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       min="0"
                       max="1"
                       step="0.05"
+                      role="slider"
                       [value]="pipeline().mask.edgeSoftness"
+                      [attr.aria-valuenow]="pipeline().mask.edgeSoftness"
+                      aria-valuemin="0"
+                      aria-valuemax="1"
+                      [attr.aria-valuetext]="pipeline().mask.edgeSoftness === 0 ? 'Hard edge' : pipeline().mask.edgeSoftness < 0.4 ? 'Slight feather' : pipeline().mask.edgeSoftness < 0.7 ? 'Moderate blur' : 'Heavy blur'"
                       (change)="onEdgeSoftnessChange($event)"
                     />
                   </div>
@@ -257,13 +334,34 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     }
                     <div class="control-group">
                       <button type="button"
-                        [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight()"
+                        [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight() || creditsExhausted()"
                         (click)="sculptokGenerate()">
-                        @if (sculptokService.inFlight()) { Sculptok generating… } @else { Generate via Sculptok }
+                        @if (sculptokService.inFlight()) { Generating… } @else { Generate via Sculptok }
                       </button>
+                      @if (creditsExhausted()) {
+                        <p class="muted small disabled-hint">
+                          You have no credits remaining.
+                          <button type="button" class="link-button" (click)="authService.authModalOpen.set(true)">Upgrade your plan →</button>
+                        </p>
+                      }
+
+                      @if (sculptokService.inFlight() || sculptokService.stage() === 'done' || sculptokService.stage() === 'error') {
+                        <div class="sculptok-progress" role="status" aria-live="polite">
+                          @for (step of sculptokProgressSteps; track step.stage) {
+                            <div class="progress-step"
+                              [class.step-done]="isStepDone(step.stage)"
+                              [class.step-active]="sculptokService.stage() === step.stage"
+                              [class.step-error]="sculptokService.stage() === 'error' && step.stage === sculptokService.stage()">
+                              <span class="step-dot" aria-hidden="true"></span>
+                              <span class="step-label">{{ step.label }}</span>
+                            </div>
+                          }
+                        </div>
+                      }
+
                       @if (sculptokService.credits(); as c) {
                         @if (c.configured) {
-                          <p class="muted">Sculptok credits: {{ c.balance }}</p>
+                          <p class="muted">{{ c.balance }} credits remaining</p>
                         } @else {
                           <p class="muted">
                             Sculptok API key not configured on the server. Upload a PNG below
@@ -280,133 +378,136 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     </div>
                   </fieldset>
 
-                  <fieldset class="control-section">
-                    <legend>Pre-sculptok prep <span class="step-tag">optional</span></legend>
-                    <p class="muted small">
-                      Cleans the photo before sculptok sees it. Defaults are off — turn on
-                      when the source is dim, blurry, or has heavy specular highlights.
-                    </p>
-                    <label class="control-toggle">
-                      <input type="checkbox"
-                        [checked]="pipeline().settings.input_clahe"
-                        (change)="onSettingToggle('input_clahe', $event)" />
-                      <span>
-                        CLAHE contrast
-                        <app-info-tip label="CLAHE contrast"
-                          text="Contrast Limited Adaptive Histogram Equalisation. Boosts local contrast in dim or muddy photos so sculptok sees more facial detail. Don't enable on already-bright studio shots — it'll posterise."></app-info-tip>
-                      </span>
-                    </label>
-                    <label class="control-toggle">
-                      <input type="checkbox"
-                        [checked]="pipeline().settings.input_denoise"
-                        (change)="onSettingToggle('input_denoise', $event)" />
-                      <span>
-                        Denoise
-                        <app-info-tip label="Denoise"
-                          text="Bilateral denoise. Smooths out sensor grain and JPEG noise without losing edges. Useful for high-ISO phone shots; skip for clean stock photography."></app-info-tip>
-                      </span>
-                    </label>
-                    <label class="control-toggle">
-                      <input type="checkbox"
-                        [checked]="pipeline().settings.input_remove_specular"
-                        (change)="onSettingToggle('input_remove_specular', $event)" />
-                      <span>
-                        Remove specular highlights
-                        <app-info-tip label="Remove specular highlights"
-                          text="Caps the brightest pixels (typically reflections off skin or jewellery) so sculptok doesn't read them as raised features. Helps with shiny foreheads, wet lips, polished metal."></app-info-tip>
-                      </span>
-                    </label>
-
-                    <!-- Background replace: uses the subject mask to scrub
-                         the photo's background before sculptok sees it.
-                         Same mask is also shipped as a deliverable when
-                         "Subject mask deliverable" is on. -->
-                    <div class="control-group">
-                      <label for="wiz-bg-pattern">
-                        Replace background before sculptok
-                        <app-info-tip label="Replace background"
-                          text="Uses the subject mask (computed automatically) to scrub the photo's background to a flat colour or pattern before sculptok generates the heightmap. With a busy background removed, sculptok focuses on the subject and produces cleaner depth. The same mask is shipped as the LightBurn deliverable when 'Subject mask deliverable' is on, so you don't pay for it twice."></app-info-tip>
+                  <details class="collapsible-section">
+                    <summary class="collapsible-summary">
+                      Pre-sculptok prep <span class="step-tag">optional</span>
+                    </summary>
+                    <div class="collapsible-body">
+                      <p class="muted small">
+                        Cleans the photo before sculptok sees it. Defaults are off — turn on
+                        when the source is dim, blurry, or has heavy specular highlights.
+                      </p>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.input_clahe"
+                          (change)="onSettingToggle('input_clahe', $event)" />
+                        <span>
+                          CLAHE contrast
+                          <app-info-tip label="CLAHE contrast"
+                            text="Contrast Limited Adaptive Histogram Equalisation. Boosts local contrast in dim or muddy photos so sculptok sees more facial detail. Don't enable on already-bright studio shots — it'll posterise."></app-info-tip>
+                        </span>
                       </label>
-                      <select id="wiz-bg-pattern"
-                        [value]="pipeline().settings.background_pattern"
-                        (change)="onBackgroundPatternChange($event)">
-                        <option value="none">— don't replace —</option>
-                        <option value="solid_black">Solid black</option>
-                        <option value="solid_white">Solid white</option>
-                        <option value="solid_grey">Solid mid-grey</option>
-                        <option value="guilloche">Guilloché (decorative)</option>
-                        <option value="stripes">Stripes (decorative)</option>
-                        <option value="dots">Dots (decorative)</option>
-                        <option value="halftone">Halftone (decorative)</option>
-                        <option value="checkers">Checkers (decorative)</option>
-                      </select>
-                      @if (pipeline().settings.background_pattern !== 'none' && !pipeline().settings.subject_mask_enabled) {
-                        <p class="muted small disabled-hint">
-                          Background replace needs a subject mask — enabling it
-                          automatically when you click <strong>Generate via Sculptok</strong>.
-                        </p>
-                      }
-                    </div>
-                  </fieldset>
-
-                  <fieldset class="control-section">
-                    <legend>Refinement passes <span class="step-tag">optional</span></legend>
-                    <p class="muted small">
-                      Extra layers to ship in the .lbrn2 bundle. Each adds a separate
-                      physical pass — they don't subdivide the depth budget.
-                    </p>
-                    <label class="control-toggle">
-                      <input type="checkbox"
-                        [checked]="pipeline().settings.subject_mask_enabled"
-                        (change)="onSettingToggle('subject_mask_enabled', $event)" />
-                      <span>
-                        Subject mask deliverable
-                        <app-info-tip label="Subject mask deliverable"
-                          text="Computes a silhouette mask during render and ships it alongside the heightmap. LightBurn uses it to limit the engraving to the subject area only. Required if you've selected a procedural background pattern."></app-info-tip>
-                      </span>
-                    </label>
-                    <label class="control-toggle">
-                      <input type="checkbox"
-                        [checked]="pipeline().settings.pre_clean_enabled"
-                        (change)="onSettingToggle('pre_clean_enabled', $event)" />
-                      <span>
-                        Pre-clean pass
-                        <app-info-tip label="Pre-clean pass"
-                          text="Defocused full-frame raster pass run BEFORE the depth carve. Burns off oxide, oils, and surface contamination so the relief lands on bare metal. Adds engrave time but improves tonal consistency."></app-info-tip>
-                      </span>
-                    </label>
-                    <label class="control-toggle">
-                      <input type="checkbox"
-                        [checked]="pipeline().settings.photo_tonal_enabled"
-                        (change)="onSettingToggle('photo_tonal_enabled', $event)" />
-                      <span>
-                        Photo-tonal overlay
-                        <app-info-tip label="Photo-tonal overlay"
-                          text="Low-power dithered pass that fires the photo's luminance back over the carved relief. Adds skin tone, hair shading, and clothing patterns that pure depth misses. Tonal-only — does NOT carve depth."></app-info-tip>
-                      </span>
-                    </label>
-                    <label class="control-toggle">
-                      <input type="checkbox"
-                        [checked]="pipeline().settings.polarity_invert"
-                        (change)="onSettingToggle('polarity_invert', $event)" />
-                      <span>
-                        Polarity invert (signet ring)
-                        <app-info-tip label="Polarity invert"
-                          text="Flips the heightmap so the subject engraves DEEP and the background stays at the surface. Use for signet rings, intaglio seals, or any inverted relief where the design is recessed."></app-info-tip>
-                      </span>
-                    </label>
-                    <div class="control-group">
-                      <label for="wiz-sig-text">
-                        Signature text
-                        <app-info-tip label="Signature text"
-                          text="Optional vector text engraved in a corner of the piece. Leave blank to omit. Useful for an artist mark, date, or serial number."></app-info-tip>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.input_denoise"
+                          (change)="onSettingToggle('input_denoise', $event)" />
+                        <span>
+                          Denoise
+                          <app-info-tip label="Denoise"
+                            text="Bilateral denoise. Smooths out sensor grain and JPEG noise without losing edges. Useful for high-ISO phone shots; skip for clean stock photography."></app-info-tip>
+                        </span>
                       </label>
-                      <input id="wiz-sig-text" type="text" maxlength="64"
-                        placeholder="e.g. JB 2026"
-                        [value]="pipeline().settings.signature_text"
-                        (change)="onSettingValue('signature_text', $event)" />
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.input_remove_specular"
+                          (change)="onSettingToggle('input_remove_specular', $event)" />
+                        <span>
+                          Remove specular highlights
+                          <app-info-tip label="Remove specular highlights"
+                            text="Caps the brightest pixels (typically reflections off skin or jewellery) so sculptok doesn't read them as raised features. Helps with shiny foreheads, wet lips, polished metal."></app-info-tip>
+                        </span>
+                      </label>
+                      <div class="control-group">
+                        <label for="wiz-bg-pattern">
+                          Replace background before sculptok
+                          <app-info-tip label="Replace background"
+                            text="Uses the subject mask (computed automatically) to scrub the photo's background to a flat colour or pattern before sculptok generates the heightmap. With a busy background removed, sculptok focuses on the subject and produces cleaner depth. The same mask is shipped as the LightBurn deliverable when 'Subject mask deliverable' is on, so you don't pay for it twice."></app-info-tip>
+                        </label>
+                        <select id="wiz-bg-pattern"
+                          [value]="pipeline().settings.background_pattern"
+                          (change)="onBackgroundPatternChange($event)">
+                          <option value="none">— don't replace —</option>
+                          <option value="solid_black">Solid black</option>
+                          <option value="solid_white">Solid white</option>
+                          <option value="solid_grey">Solid mid-grey</option>
+                          <option value="guilloche">Guilloché (decorative)</option>
+                          <option value="stripes">Stripes (decorative)</option>
+                          <option value="dots">Dots (decorative)</option>
+                          <option value="halftone">Halftone (decorative)</option>
+                          <option value="checkers">Checkers (decorative)</option>
+                        </select>
+                        @if (pipeline().settings.background_pattern !== 'none' && !pipeline().settings.subject_mask_enabled) {
+                          <p class="muted small disabled-hint">
+                            Background replace needs a subject mask — enabling it
+                            automatically when you click <strong>Generate via Sculptok</strong>.
+                          </p>
+                        }
+                      </div>
                     </div>
-                  </fieldset>
+                  </details>
+
+                  <details class="collapsible-section">
+                    <summary class="collapsible-summary">
+                      Refinement passes <span class="step-tag">optional</span>
+                    </summary>
+                    <div class="collapsible-body">
+                      <p class="muted small">
+                        Extra layers to ship in the .lbrn2 bundle. Each adds a separate
+                        physical pass — they don't subdivide the depth budget.
+                      </p>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.subject_mask_enabled"
+                          (change)="onSettingToggle('subject_mask_enabled', $event)" />
+                        <span>
+                          Subject mask deliverable
+                          <app-info-tip label="Subject mask deliverable"
+                            text="Computes a silhouette mask during render and ships it alongside the heightmap. LightBurn uses it to limit the engraving to the subject area only. Required if you've selected a procedural background pattern."></app-info-tip>
+                        </span>
+                      </label>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.pre_clean_enabled"
+                          (change)="onSettingToggle('pre_clean_enabled', $event)" />
+                        <span>
+                          Pre-clean pass
+                          <app-info-tip label="Pre-clean pass"
+                            text="Defocused full-frame raster pass run BEFORE the depth carve. Burns off oxide, oils, and surface contamination so the relief lands on bare metal. Adds engrave time but improves tonal consistency."></app-info-tip>
+                        </span>
+                      </label>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.photo_tonal_enabled"
+                          (change)="onSettingToggle('photo_tonal_enabled', $event)" />
+                        <span>
+                          Photo-tonal overlay
+                          <app-info-tip label="Photo-tonal overlay"
+                            text="Low-power dithered pass that fires the photo's luminance back over the carved relief. Adds skin tone, hair shading, and clothing patterns that pure depth misses. Tonal-only — does NOT carve depth."></app-info-tip>
+                        </span>
+                      </label>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.polarity_invert"
+                          (change)="onSettingToggle('polarity_invert', $event)" />
+                        <span>
+                          Polarity invert (signet ring)
+                          <app-info-tip label="Polarity invert"
+                            text="Flips the heightmap so the subject engraves DEEP and the background stays at the surface. Use for signet rings, intaglio seals, or any inverted relief where the design is recessed."></app-info-tip>
+                        </span>
+                      </label>
+                      <div class="control-group">
+                        <label for="wiz-sig-text">
+                          Signature text
+                          <app-info-tip label="Signature text"
+                            text="Optional vector text engraved in a corner of the piece. Leave blank to omit. Useful for an artist mark, date, or serial number."></app-info-tip>
+                        </label>
+                        <input id="wiz-sig-text" type="text" maxlength="64"
+                          placeholder="e.g. JB 2026"
+                          [value]="pipeline().settings.signature_text"
+                          (change)="onSettingValue('signature_text', $event)" />
+                      </div>
+                    </div>
+                  </details>
 
                   <div class="control-actions">
                     <button type="button"
@@ -632,7 +733,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                 <ul>
                   @for (entry of historyPreview(); track entry.id) {
                     <li>
-                      <strong>{{ entry.action }}</strong>
+                      <strong [title]="entry.action">{{ entry.action }}</strong>
                       <span>
                         {{ relativeTime(entry.timestampIso) }}
                         @if (entry.durationMs !== undefined) {
@@ -643,7 +744,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   }
                 </ul>
               } @else {
-                <p class="muted">No actions recorded yet.</p>
+                <p class="muted">Your last {{ 5 }} actions will appear here as you work through the steps.</p>
               }
             </section>
           </div>
@@ -662,7 +763,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
             @if (session().sourceMeta; as meta) {
               <p>{{ meta.w }} × {{ meta.h }} px</p>
             } @else {
-              <p class="muted">No image uploaded yet.</p>
+              <p class="muted">Drop a portrait, logo, or pet photo in step 1 to begin.</p>
             }
           </div>
 
@@ -703,13 +804,75 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
           }
 
           <div class="preview-tile">
-            <h3>Heightmap</h3>
-            @if (output().previewId; as pid) {
-              <img [src]="blobUrl(pid)" alt="Heightmap preview" style="width:100%;" />
+            @if (session().imageId && output().previewId) {
+              <h3>Before / After <span class="step-tag">drag to compare</span></h3>
+              <div
+                class="comparison-wrap"
+                [style.--split]="comparisonSplit() + '%'"
+              >
+                <img
+                  class="comparison-img comparison-before"
+                  [src]="blobUrl(session().imageId!)"
+                  alt="Source photo"
+                  draggable="false"
+                />
+                <img
+                  class="comparison-img comparison-after"
+                  [src]="blobUrl(output().previewId!)"
+                  alt="Depth map"
+                  draggable="false"
+                />
+                <div class="comparison-handle" aria-hidden="true">
+                  <div class="comparison-line"></div>
+                  <div class="comparison-knob">⟺</div>
+                </div>
+                <input
+                  type="range"
+                  class="comparison-range"
+                  min="0"
+                  max="100"
+                  [value]="comparisonSplit()"
+                  (input)="onComparisonSplit($event)"
+                  aria-label="Before/after comparison position"
+                />
+              </div>
+              <p class="muted small" style="margin-top:0.4rem;">
+                Left: source photo — Right: depth map (bright = shallow engrave)
+              </p>
             } @else {
-              <p class="muted">Preview will appear after rendering.</p>
+              <h3>Heightmap</h3>
+              <p class="muted">
+                Lighter areas engrave shallow, darker areas engrave deep.
+                Your depth preview will appear here after step 3.
+              </p>
             }
           </div>
+
+          @if (output().heightmapId) {
+            <div class="preview-tile">
+              <h3>Quick export</h3>
+              <div class="quick-export-row">
+                <button type="button" class="secondary"
+                  [disabled]="exportService.bundleInFlight()"
+                  (click)="exportPng()"
+                  title="Download 16-bit heightmap PNG">
+                  PNG
+                </button>
+                <button type="button" class="secondary"
+                  [disabled]="!output().plan || exportService.bundleInFlight()"
+                  (click)="exportLbrn2()"
+                  title="{{ output().plan ? 'Download LightBurn project' : 'Needs pass plan — go to step 4' }}">
+                  .lbrn2{{ !output().plan ? ' (needs plan)' : '' }}
+                </button>
+                <button type="button" class="secondary"
+                  [disabled]="exportService.bundleInFlight()"
+                  (click)="exportStl()"
+                  title="Download 3D mesh STL">
+                  .stl
+                </button>
+              </div>
+            </div>
+          }
 
           <dl class="state-grid compact">
             <div>
@@ -1171,8 +1334,9 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     }
 
     li {
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: baseline;
       gap: 0.75rem;
       border-bottom: 1px solid var(--border-default);
       padding-bottom: 0.75rem;
@@ -1181,6 +1345,21 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     li:last-child {
       border-bottom: 0;
       padding-bottom: 0;
+    }
+
+    li strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+
+    li > span {
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      text-align: right;
     }
 
     .muted {
@@ -1236,6 +1415,353 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       align-self: flex-start;
     }
 
+    /* ── Onboarding banner ────────────────────────────────────────────── */
+    .onboarding-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.85rem 1rem;
+      border: 1px solid color-mix(in srgb, var(--action-bg) 40%, var(--border-default));
+      border-radius: 0.75rem;
+      background: color-mix(in srgb, var(--action-bg) 6%, var(--bg-surface));
+      margin-bottom: 1rem;
+    }
+
+    .onboarding-text {
+      flex: 1;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .onboarding-text strong {
+      color: var(--text-primary);
+    }
+
+    .onboarding-dismiss {
+      flex-shrink: 0;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+      border-radius: 0;
+    }
+
+    /* ── Drop zone ────────────────────────────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed var(--border-input);
+      border-radius: 1rem;
+      padding: 2rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 150ms, background 150ms;
+      background: var(--bg-sunken);
+    }
+
+    .drop-zone-active {
+      border-color: var(--action-bg);
+      background: color-mix(in srgb, var(--action-bg) 6%, var(--bg-surface));
+    }
+
+    .drop-zone-loaded {
+      border-color: #27ae60;
+      border-style: solid;
+    }
+
+    .drop-zone-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      pointer-events: none;
+    }
+
+    .drop-zone-icon {
+      font-size: 2rem;
+      line-height: 1;
+      margin-bottom: 0.25rem;
+    }
+
+    /* ── Sculptok progress strip ──────────────────────────────────────── */
+    .sculptok-progress {
+      display: flex;
+      gap: 0;
+      margin: 0.5rem 0;
+      border: 1px solid var(--border-default);
+      border-radius: 0.6rem;
+      overflow: hidden;
+    }
+
+    .progress-step {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      background: var(--bg-sunken);
+      border-right: 1px solid var(--border-default);
+      transition: background 200ms, color 200ms;
+    }
+
+    .progress-step:last-child {
+      border-right: 0;
+    }
+
+    .step-dot {
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 999px;
+      background: var(--border-input);
+      flex-shrink: 0;
+      transition: background 200ms;
+    }
+
+    .progress-step.step-done {
+      background: color-mix(in srgb, #27ae60 8%, var(--bg-surface));
+      color: #27ae60;
+    }
+
+    .progress-step.step-done .step-dot {
+      background: #27ae60;
+    }
+
+    .progress-step.step-active {
+      background: color-mix(in srgb, var(--action-bg) 10%, var(--bg-surface));
+      color: var(--action-bg);
+      font-weight: 600;
+    }
+
+    .progress-step.step-active .step-dot {
+      background: var(--action-bg);
+      animation: pulse-dot 1s ease-in-out infinite;
+    }
+
+    .progress-step.step-error {
+      background: color-mix(in srgb, #e74c3c 8%, var(--bg-surface));
+      color: #e74c3c;
+    }
+
+    .progress-step.step-error .step-dot {
+      background: #e74c3c;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    /* ── Before/after comparison slider ──────────────────────────────────── */
+    .comparison-wrap {
+      position: relative;
+      width: 100%;
+      overflow: hidden;
+      border-radius: 0.5rem;
+      cursor: ew-resize;
+      user-select: none;
+    }
+
+    .comparison-img {
+      display: block;
+      width: 100%;
+      height: auto;
+      pointer-events: none;
+    }
+
+    .comparison-before {
+      position: relative;
+      z-index: 1;
+    }
+
+    .comparison-after {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 2;
+      clip-path: inset(0 0 0 var(--split, 50%));
+    }
+
+    .comparison-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: var(--split, 50%);
+      transform: translateX(-50%);
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .comparison-line {
+      width: 2px;
+      flex: 1;
+      background: #fff;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+
+    .comparison-knob {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 2rem;
+      height: 2rem;
+      border-radius: 999px;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      color: #333;
+    }
+
+    .comparison-range {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: ew-resize;
+      z-index: 4;
+      margin: 0;
+    }
+
+    /* ── Accessibility helpers ────────────────────────────────────────── */
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* ── Collapsible <details> sections ──────────────────────────────── */
+    .collapsible-section {
+      border: 1px solid var(--border-default);
+      border-radius: 0.75rem;
+      background: var(--bg-surface);
+      overflow: hidden;
+    }
+
+    .collapsible-summary {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      cursor: pointer;
+      user-select: none;
+      list-style: none;
+    }
+
+    .collapsible-summary::-webkit-details-marker { display: none; }
+
+    .collapsible-summary::before {
+      content: '▶';
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      transition: transform 150ms;
+      flex-shrink: 0;
+    }
+
+    .collapsible-section[open] .collapsible-summary::before {
+      transform: rotate(90deg);
+    }
+
+    .collapsible-body {
+      display: grid;
+      gap: 0.55rem;
+      padding: 0 1rem 1rem;
+      border-top: 1px solid var(--border-default);
+    }
+
+    /* ── Quick export strip (preview pane) ───────────────────────────── */
+    .quick-export-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .quick-export-row button {
+      border-radius: 0.5rem;
+      font-size: 0.8rem;
+      padding: 0.35rem 0.75rem;
+    }
+
+    /* ── Target preset chips ─────────────────────────────────────────── */
+    .target-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .target-chip {
+      border-radius: 999px;
+      border: 1px solid var(--border-input);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      padding: 0.35rem 0.85rem;
+      font: inherit;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: background 120ms, border-color 120ms, color 120ms;
+    }
+
+    .target-chip.active {
+      background: var(--action-bg);
+      border-color: var(--action-bg);
+      color: var(--action-fg);
+    }
+
+    /* ── Generate & package hero CTA ─────────────────────────────────── */
+    .hero-cta-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.85rem 1rem;
+      border: 1px solid color-mix(in srgb, var(--action-bg) 40%, var(--border-default));
+      border-radius: 0.75rem;
+      background: color-mix(in srgb, var(--action-bg) 5%, var(--bg-surface));
+    }
+
+    .hero-cta-btn {
+      flex-shrink: 0;
+      border-radius: 999px;
+      border: 1px solid var(--action-bg);
+      background: var(--action-bg);
+      color: var(--action-fg);
+      padding: 0.6rem 1.4rem;
+      font: inherit;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: filter 120ms;
+    }
+
+    .hero-cta-btn:hover:not(:disabled) { filter: brightness(1.08); }
+    .hero-cta-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .hero-cta-hint {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
     @media (max-width: 960px) {
       .wizard-content-grid {
         grid-template-columns: 1fr;
@@ -1248,12 +1774,15 @@ export class WizardShellComponent {
   protected readonly wizardPageOptional = WIZARD_PAGE_OPTIONAL;
   protected readonly stageSummaries = WIZARD_STAGE_SUMMARIES;
   protected readonly maskBackends = WIZARD_MASK_BACKENDS;
+  protected readonly sculptokStageLabels = SCULPTOK_STAGE_LABELS;
   protected readonly sessionTree = inject(SessionTreeService);
   protected readonly sessionService = inject(SessionService);
   protected readonly sculptokService = inject(SculptokService);
   protected readonly planService = inject(PlanService);
   protected readonly renderService = inject(RenderService);
   protected readonly exportService = inject(ExportService);
+  protected readonly targetService = inject(TargetService);
+  protected readonly authService = inject(AuthService);
   private readonly apiClient = inject(ApiClientService);
   private readonly maskService = inject(MaskService);
   protected readonly session = this.sessionTree.session;
@@ -1265,6 +1794,40 @@ export class WizardShellComponent {
     ? [...WIZARD_COLLAPSED_SPLITTER_SIZES]
     : [...WIZARD_DEFAULT_SPLITTER_SIZES]);
   protected readonly historyPreview = computed(() => this.session().history.slice(0, WIZARD_HISTORY_PREVIEW_LIMIT));
+
+  /** True until the user has completed their first successful export. Used to show onboarding hints. */
+  protected readonly showOnboarding = signal(
+    globalThis.localStorage?.getItem('mopa-onboarding-done') !== 'true',
+  );
+
+  /** Tracks whether a file is being dragged over the drop zone. */
+  protected readonly dragOver = signal(false);
+
+  /** Position (0-100) of the before/after comparison slider in the preview pane. */
+  protected readonly comparisonSplit = signal(50);
+
+  /**
+   * Tracks whether a "Generate & package" chain is in progress.
+   * 'generating' = waiting for sculptok; 'rendering' = waiting for render.
+   * Auto-plan fires automatically once the heightmap lands.
+   */
+  protected readonly chainStage = signal<'idle' | 'generating' | 'rendering'>('idle');
+
+  /** Ordered stages shown in the Sculptok progress strip. */
+  protected readonly sculptokProgressSteps = [
+    { stage: 'preparing' as const,  label: 'Preparing image' },
+    { stage: 'generating' as const, label: 'Generating depth map' },
+    { stage: 'packaging' as const,  label: 'Packaging result' },
+    { stage: 'done' as const,       label: 'Done' },
+  ];
+
+  /**
+   * True when the authenticated user has no credits left.
+   * When not authenticated, we rely on server-side enforcement instead.
+   */
+  protected readonly creditsExhausted = computed(
+    () => this.authService.isAuthenticated() && this.authService.creditsRemaining() <= 0,
+  );
 
   /**
    * Tracks the (image, heightmap, profile) tuple the auto-plan effect last
@@ -1307,6 +1870,7 @@ export class WizardShellComponent {
   constructor() {
     this.sessionService.loadProfiles();
     this.sculptokService.loadCredits();
+    this.targetService.loadPresets();
 
     // Tick the relative-time clock once per second — only in the browser,
     // and tear down on destroy so the test harness doesn't leak intervals.
@@ -1315,6 +1879,23 @@ export class WizardShellComponent {
       const handle = globalThis.setInterval(() => this.nowMs.set(Date.now()), 1000);
       inject(DestroyRef).onDestroy(() => globalThis.clearInterval(handle));
     }
+
+    // Chain effect: sculptok done → trigger render (for "Generate & package" CTA).
+    effect(() => {
+      if (this.chainStage() !== 'generating') return;
+      if (this.sculptokService.stage() !== 'done') return;
+      untracked(() => {
+        this.chainStage.set('rendering');
+        this.renderService.render();
+      });
+    });
+
+    // Chain effect: render complete → reset chain. Auto-plan picks up from here.
+    effect(() => {
+      if (this.chainStage() !== 'rendering') return;
+      if (this.renderService.inFlight()) return;
+      untracked(() => this.chainStage.set('idle'));
+    });
 
     // Auto-compute pass plan whenever prerequisites are ready — independent
     // of which page the user is on. If they skip page 4 and jump straight
@@ -1406,6 +1987,35 @@ export class WizardShellComponent {
     input.value = '';
   }
 
+  protected onComparisonSplit(event: Event): void {
+    this.comparisonSplit.set(Number((event.target as HTMLInputElement).value));
+  }
+
+  protected onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(true);
+  }
+
+  protected onDragLeave(): void {
+    this.dragOver.set(false);
+  }
+
+  protected onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(false);
+    const file = event.dataTransfer?.files.item(0);
+    if (!file || !file.type.startsWith('image/')) return;
+    this.sessionService.uploadImage(file);
+  }
+
+  /** Returns true if the given stage is before the current active stage (i.e. already completed). */
+  protected isStepDone(stage: 'preparing' | 'generating' | 'packaging' | 'done'): boolean {
+    const order = ['preparing', 'generating', 'packaging', 'done'] as const;
+    const current = this.sculptokService.stage();
+    if (current === 'error' || current === 'idle') return false;
+    return order.indexOf(stage) < order.indexOf(current as typeof stage);
+  }
+
   protected onProfileSelected(event: Event): void {
     const select = event.target as HTMLSelectElement;
     this.sessionService.setProfileName(select.value || null);
@@ -1450,6 +2060,15 @@ export class WizardShellComponent {
 
   protected renderPreview(): void {
     this.renderService.render();
+  }
+
+  protected generateAndRenderChain(): void {
+    this.chainStage.set('generating');
+    this.sculptokGenerate();
+  }
+
+  protected onTargetSelect(name: string): void {
+    this.targetService.apply(name);
   }
 
   protected sculptokGenerate(): void {
@@ -1537,6 +2156,12 @@ export class WizardShellComponent {
 
   protected submitBundle(): void {
     this.exportService.exportBundle(this.effectiveSelections());
+    this.dismissOnboarding();
+  }
+
+  protected dismissOnboarding(): void {
+    globalThis.localStorage?.setItem('mopa-onboarding-done', 'true');
+    this.showOnboarding.set(false);
   }
 
   protected dismissToast(id: string): void {
