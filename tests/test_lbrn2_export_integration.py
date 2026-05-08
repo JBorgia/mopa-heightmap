@@ -427,3 +427,27 @@ def test_api_export_lbrn2_with_subject_mask_adds_non_engraving_layer(
         assert subname_match and subname_match.group(1) in {
             "3D Slice", "Image", "Fill", "Line",
         }, f"unknown subname {subname_match!r}; LightBurn only knows the standard set"
+
+        # XForm scales must match the depth pass — the mask is resized to
+        # the heightmap pixel dims so both shapes share an identical scale
+        # factor. Without this the mask renders stretched in LightBurn
+        # because the writer computes per-shape scale from each PNG's own
+        # pixel count and the source-photo mask has a different aspect
+        # than the sculptok heightmap.
+        depth_shape = re.search(
+            r'<Shape Type="Bitmap" CutIndex="\d+"[^>]*>\s*<XForm>([^<]+)</XForm>',
+            text,
+        )
+        all_shapes = re.findall(
+            r'<Shape Type="Bitmap" CutIndex="(\d+)"[^>]*>\s*<XForm>([^<]+)</XForm>',
+            text,
+        )
+        assert len(all_shapes) == 2
+        # Parse the six XForm values; sx and -sy must be equal across shapes.
+        scales = [tuple(float(v) for v in xform.split()) for _, xform in all_shapes]
+        assert abs(scales[0][0] - scales[1][0]) < 1e-6, (
+            f"XForm sx mismatch: {scales} — mask not resized to heightmap dims"
+        )
+        assert abs(scales[0][3] - scales[1][3]) < 1e-6, (
+            f"XForm sy mismatch: {scales} — mask not resized to heightmap dims"
+        )

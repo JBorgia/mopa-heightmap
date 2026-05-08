@@ -412,13 +412,39 @@ def do_export_lbrn2(
         if subject_mask_id:
             mask_bytes = blob_store.load_bytes(subject_mask_id)
             if mask_bytes is not None:
-                # Write the mask PNG to the scratch dir so the writer can
-                # read it for embedding, but DON'T append it to
+                # Resize the mask to match the heightmap pixel dimensions
+                # before embedding. Subject masks come from /mask in
+                # source-photo pixel space (e.g. 539×360), while the
+                # heightmap is in sculptok space (e.g. 960×1280) — usually
+                # a different aspect ratio. Without resizing, the writer
+                # computes a different XForm scale for each shape and the
+                # mask renders stretched relative to the depth layer in
+                # LightBurn. Aspect-preserving "contain" fit keeps the
+                # mask silhouette correctly aligned.
+                _orig = Image.open(io.BytesIO(mask_bytes))
+                _orig.load()
+                if _orig.size != (px_w, px_h):
+                    fit_scale = min(px_w / _orig.width, px_h / _orig.height)
+                    fit_w = max(1, int(round(_orig.width * fit_scale)))
+                    fit_h = max(1, int(round(_orig.height * fit_scale)))
+                    _resized = _orig.resize((fit_w, fit_h), Image.Resampling.LANCZOS)
+                    # Pad to exact heightmap dims so the XForm math matches
+                    # the depth pass — black surrounds the mask silhouette,
+                    # which keeps "no engrave outside the subject" semantics.
+                    _padded = Image.new(_resized.mode, (px_w, px_h), color=0)
+                    paste_x = (px_w - fit_w) // 2
+                    paste_y = (px_h - fit_h) // 2
+                    _padded.paste(_resized, (paste_x, paste_y))
+                    mask_buf = io.BytesIO()
+                    _padded.save(mask_buf, format="PNG")
+                    mask_bytes = mask_buf.getvalue()
+                # Write the (resized) mask PNG to the scratch dir so the
+                # writer can read it for embedding. DON'T append it to
                 # ``png_paths``: the mask is embedded as base64 inside the
                 # .lbrn2 (embed_data=True below), and the bundle endpoint
-                # writes a standalone ``subject_mask.png`` from the same
-                # blob_id as a reference artifact. Adding it here would
-                # ship the same bytes three times.
+                # writes a standalone ``subject_mask.png`` from the
+                # ORIGINAL (un-resized) blob as a reference artifact, so
+                # the user gets the source-resolution mask too.
                 mask_path = bundle_dir / "subject_mask.png"
                 mask_path.write_bytes(mask_bytes)
 
