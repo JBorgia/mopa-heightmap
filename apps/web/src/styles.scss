@@ -2,52 +2,68 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* ── Design tokens ────────────────────────────────────────────────────────── */
+/* ── Design tokens — Autumn palette ──────────────────────────────────────── */
 :root {
-  --bg-base:              #f1f5f9;
-  --bg-surface:           #ffffff;
-  --bg-sunken:            #f8fafc;
-  --bg-input:             #ffffff;
-  --border-default:       #e2e8f0;
-  --border-input:         #cbd5e1;
-  --text-primary:         #0f172a;
-  --text-secondary:       #334155;
-  --text-muted:           #64748b;
-  --text-faint:           #94a3b8;
-  --badge-bg:             #e2e8f0;
-  --badge-fg:             #334155;
-  --badge-muted-bg:       #f1f5f9;
-  --badge-muted-fg:       #94a3b8;
+  /* Backgrounds — warm parchment */
+  --bg-base:              #fef3e2;
+  --bg-surface:           #fffbf5;
+  --bg-sunken:            #fde8c8;
+  --bg-input:             #fffbf5;
+  /* Borders — warm tan */
+  --border-default:       #e8cfa6;
+  --border-input:         #d4b17c;
+  /* Text — warm brown scale */
+  --text-primary:         #1c0a00;
+  --text-secondary:       #5c3317;
+  --text-muted:           #8b5a2b;
+  --text-faint:           #ba8c5a;
+  /* Badges */
+  --badge-bg:             #f0d9b5;
+  --badge-fg:             #5c3317;
+  --badge-muted-bg:       #fef3e2;
+  --badge-muted-fg:       #ba8c5a;
   --badge-success-bg:     #dcfce7;
   --badge-success-fg:     #15803d;
-  --action-bg:            #0f172a;
+  /* Primary action — burnt orange */
+  --action-bg:            #c2410c;
   --action-fg:            #ffffff;
-  --action-secondary-bg:  #f8fafc;
-  --action-secondary-fg:  #0f172a;
+  --action-secondary-bg:  #fef3e2;
+  --action-secondary-fg:  #1c0a00;
+  /* Accent (chips, highlights, focus rings) */
+  --accent:               #c2410c;
+  --accent-muted:         color-mix(in srgb, #c2410c 12%, #fef3e2);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-base:              #0f172a;
-    --bg-surface:           #1e293b;
-    --bg-sunken:            #0f172a;
-    --bg-input:             #1e293b;
-    --border-default:       #334155;
-    --border-input:         #475569;
-    --text-primary:         #f1f5f9;
-    --text-secondary:       #cbd5e1;
-    --text-muted:           #94a3b8;
-    --text-faint:           #64748b;
-    --badge-bg:             #334155;
-    --badge-fg:             #cbd5e1;
-    --badge-muted-bg:       #1e293b;
-    --badge-muted-fg:       #64748b;
+    /* Backgrounds — dark mahogany */
+    --bg-base:              #180a02;
+    --bg-surface:           #271408;
+    --bg-sunken:            #180a02;
+    --bg-input:             #271408;
+    /* Borders */
+    --border-default:       #4a2510;
+    --border-input:         #6b3820;
+    /* Text */
+    --text-primary:         #fef3e2;
+    --text-secondary:       #e8cfa6;
+    --text-muted:           #ba8c5a;
+    --text-faint:           #8b5a2b;
+    /* Badges */
+    --badge-bg:             #4a2510;
+    --badge-fg:             #e8cfa6;
+    --badge-muted-bg:       #271408;
+    --badge-muted-fg:       #8b5a2b;
     --badge-success-bg:     #14532d;
     --badge-success-fg:     #86efac;
-    --action-bg:            #f1f5f9;
-    --action-fg:            #0f172a;
-    --action-secondary-bg:  #1e293b;
-    --action-secondary-fg:  #f1f5f9;
+    /* Primary action (inverted on dark) */
+    --action-bg:            #fef3e2;
+    --action-fg:            #1c0a00;
+    --action-secondary-bg:  #271408;
+    --action-secondary-fg:  #fef3e2;
+    /* Accent */
+    --accent:               #e07b39;
+    --accent-muted:         color-mix(in srgb, #e07b39 15%, #271408);
   }
 }
 
@@ -60,7 +76,7 @@
 
 /* ── WCAG 2.4.13 focus indicators ────────────────────────────────────────── */
 :focus-visible {
-  outline: 2px solid var(--action-bg);
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
   border-radius: 3px;
 }
@@ -79,6 +95,11 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Native form controls (range, checkbox, radio, progress) */
+:root {
+  accent-color: var(--accent);
 }
 
 html,

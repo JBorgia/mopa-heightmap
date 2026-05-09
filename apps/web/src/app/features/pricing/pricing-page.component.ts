@@ -198,7 +198,7 @@ import { AuthService } from '../../core/saas/auth.service';
     .save-pill {
       font-size: 0.68rem;
       font-weight: 700;
-      background: #27ae60;
+      background: var(--accent);
       color: #fff;
       border-radius: 999px;
       padding: 0.1rem 0.45rem;
@@ -300,7 +300,7 @@ import { AuthService } from '../../core/saas/auth.service';
     }
 
     .check {
-      color: #27ae60;
+      color: var(--accent);
       font-weight: 700;
       flex-shrink: 0;
     }

@@ -718,7 +718,7 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
 
     .upload-strip-loaded {
       border-style: solid;
-      border-color: #27ae60;
+      border-color: var(--accent);
     }
 
     .upload-label {
@@ -767,8 +767,8 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       transition: background 200ms;
     }
 
-    .progress-step.step-done { background: color-mix(in srgb, #27ae60 8%, var(--bg-surface)); color: #27ae60; }
-    .progress-step.step-done .step-dot { background: #27ae60; }
+    .progress-step.step-done { background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface)); color: var(--accent); }
+    .progress-step.step-done .step-dot { background: var(--accent); }
     .progress-step.step-active { background: color-mix(in srgb, var(--action-bg) 10%, var(--bg-surface)); color: var(--action-bg); font-weight: 600; }
     .progress-step.step-active .step-dot { background: var(--action-bg); animation: pulse-dot 1s ease-in-out infinite; }
     .progress-step.step-error { background: color-mix(in srgb, #e74c3c 8%, var(--bg-surface)); color: #e74c3c; }

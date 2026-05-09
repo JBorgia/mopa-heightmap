@@ -981,18 +981,18 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     }
 
     .page-chip.complete:not(.active) {
-      border-color: color-mix(in srgb, #27ae60 50%, var(--border-input));
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--border-input));
     }
 
     .page-chip.complete .page-chip-status {
-      background: #27ae60;
+      background: var(--accent);
       color: white;
-      border-color: #27ae60;
+      border-color: var(--accent);
     }
 
     .page-chip.active.complete .page-chip-status {
       background: white;
-      color: #27ae60;
+      color: var(--accent);
       border-color: white;
     }
 
@@ -1390,7 +1390,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     .toast-error   { border-color: #e74c3c; background: color-mix(in srgb, #e74c3c 12%, var(--bg-surface)); }
     .toast-warn    { border-color: #e67e22; background: color-mix(in srgb, #e67e22 12%, var(--bg-surface)); }
     .toast-success { border-color: #27ae60; background: color-mix(in srgb, #27ae60 12%, var(--bg-surface)); }
-    .toast-info    { border-color: var(--action-bg); background: color-mix(in srgb, var(--action-bg) 12%, var(--bg-surface)); }
+    .toast-info    { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface)); }
 
     .toast-body {
       flex: 1;
@@ -1467,7 +1467,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     }
 
     .drop-zone-loaded {
-      border-color: #27ae60;
+      border-color: var(--accent);
       border-style: solid;
     }
 
@@ -1522,12 +1522,12 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     }
 
     .progress-step.step-done {
-      background: color-mix(in srgb, #27ae60 8%, var(--bg-surface));
-      color: #27ae60;
+      background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+      color: var(--accent);
     }
 
     .progress-step.step-done .step-dot {
-      background: #27ae60;
+      background: var(--accent);
     }
 
     .progress-step.step-active {
@@ -1603,7 +1603,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     .comparison-line {
       width: 2px;
       flex: 1;
-      background: #fff;
+      background: var(--accent);
       box-shadow: 0 0 4px rgba(0,0,0,0.5);
     }
 
@@ -1614,13 +1614,13 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       width: 2rem;
       height: 2rem;
       border-radius: 999px;
-      background: #fff;
+      background: var(--accent);
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 0.75rem;
-      color: #333;
+      color: #fff;
     }
 
     .comparison-range {
