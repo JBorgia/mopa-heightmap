@@ -206,7 +206,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       <button
                         type="button"
                         class="hero-cta-btn"
-                        [disabled]="sculptokService.inFlight() || renderService.inFlight() || chainStage() !== 'idle' || creditsExhausted()"
+                        [disabled]="sculptokService.inFlight() || renderService.inFlight() || chainStage() !== 'idle' || creditsExhausted() || !!output().heightmapId"
                         (click)="generateAndRenderChain()"
                       >
                         @if (chainStage() === 'generating') {
@@ -269,8 +269,8 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     />
                   </div>
                   <div class="control-actions">
-                    <button type="button" [disabled]="!session().imageId" (click)="createMask()">
-                      Compute mask
+                    <button type="button" [disabled]="!session().imageId || maskService.inFlight() || maskFresh()" (click)="createMask()">
+                      @if (maskService.inFlight()) { Computing… } @else if (maskFresh()) { Mask ready } @else { Compute mask }
                     </button>
                   </div>
                   @if (pipeline().mask.maskId) {
@@ -337,9 +337,9 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     }
                     <div class="control-group">
                       <button type="button"
-                        [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight() || creditsExhausted()"
+                        [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight() || creditsExhausted() || !!output().heightmapId"
                         (click)="sculptokGenerate()">
-                        @if (sculptokService.inFlight()) { Generating… } @else { Generate via Sculptok }
+                        @if (sculptokService.inFlight()) { Generating… } @else if (output().heightmapId) { Depth map ready } @else { Generate via Sculptok }
                       </button>
                       @if (creditsExhausted()) {
                         <p class="muted small disabled-hint">
@@ -514,10 +514,12 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
 
                   <div class="control-actions">
                     <button type="button"
-                      [disabled]="!canRender() || renderService.inFlight()"
+                      [disabled]="!canRender() || renderService.inFlight() || renderFresh()"
                       (click)="renderPreview()">
                       @if (renderService.inFlight()) {
                         Rendering…
+                      } @else if (renderFresh()) {
+                        Heightmap ready
                       } @else if (output().heightmapId) {
                         Re-render preview
                       } @else {
@@ -563,13 +565,13 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   <div class="control-actions">
                     <button
                       type="button"
-                      [disabled]="!output().heightmapId || planService.inFlight()"
+                      [disabled]="!output().heightmapId || planService.inFlight() || !!output().plan"
                       (click)="computePlan()"
                     >
                       @if (planService.inFlight()) {
                         Computing…
                       } @else if (output().plan) {
-                        Recompute pass plan
+                        Plan ready
                       } @else {
                         Compute pass plan
                       }
@@ -1920,7 +1922,7 @@ export class WizardShellComponent {
   protected readonly targetService = inject(TargetService);
   protected readonly authService = inject(AuthService);
   private readonly apiClient = inject(ApiClientService);
-  private readonly maskService = inject(MaskService);
+  protected readonly maskService = inject(MaskService);
   protected readonly session = this.sessionTree.session;
   protected readonly pipeline = this.sessionTree.pipeline;
   protected readonly output = this.sessionTree.output;
@@ -1964,6 +1966,27 @@ export class WizardShellComponent {
   protected readonly creditsExhausted = computed(
     () => this.authService.isAuthenticated() && this.authService.creditsRemaining() <= 0,
   );
+
+  /**
+   * True when the current render inputs (imageId + profile + settings) match
+   * what was used to produce the existing heightmap. Re-rendering would be
+   * a no-op; the button is disabled until the user changes a setting.
+   */
+  protected readonly renderFresh = computed(() => {
+    if (!this.output().heightmapId) return false;
+    return this.renderService.lastRenderedKey() === this.renderService.currentRenderKey();
+  });
+
+  /**
+   * True when the current mask inputs (imageId + backend + edgeSoftness) match
+   * what was used to produce the existing maskId.
+   */
+  protected readonly maskFresh = computed(() => {
+    const { session, pipeline } = this.sessionTree.state();
+    if (!pipeline.mask.maskId) return false;
+    const currentKey = `${session.imageId}|${pipeline.mask.backend}|${pipeline.mask.edgeSoftness}`;
+    return this.maskService.lastMaskedKey() === currentKey;
+  });
 
   /** Overall wizard completion 0-100 based on how many steps have their artifact. */
   protected readonly wizardProgress = computed(() => {

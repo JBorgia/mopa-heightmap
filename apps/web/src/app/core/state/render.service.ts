@@ -15,6 +15,19 @@ export class RenderService {
   readonly inFlight = signal(false);
 
   /**
+   * The input key used when the current heightmap was produced.
+   * Format: ``imageId|profileName|settingsJson``.
+   * When this matches ``currentRenderKey()``, the heightmap is fresh and
+   * re-rendering would produce an identical result.
+   */
+  readonly lastRenderedKey = signal<string | null>(null);
+
+  currentRenderKey(): string {
+    const { session, pipeline } = this.sessionTree.state();
+    return `${session.imageId}|${pipeline.render.profileName}|${JSON.stringify(pipeline.settings)}`;
+  }
+
+  /**
    * Generic settings patch — set a single ``HeightmapSettings`` field on
    * the live state. UI controls bind to this so we don't proliferate
    * one-shot setters per knob.
@@ -44,6 +57,7 @@ export class RenderService {
       return; // ignore double-clicks while a request is outstanding
     }
 
+    const key = this.currentRenderKey();
     const { render, settings } = state.pipeline;
     this.inFlight.set(true);
 
@@ -81,6 +95,7 @@ export class RenderService {
             'render:run',
             Math.round((response.elapsed_s ?? 0) * 1000),
           );
+          this.lastRenderedKey.set(key);
           this.inFlight.set(false);
         },
         error: (err) => {
