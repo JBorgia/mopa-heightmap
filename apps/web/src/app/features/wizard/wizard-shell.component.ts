@@ -1171,7 +1171,6 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       display: grid;
       grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
       gap: 1rem;
-      padding: 0 1.5rem 1.5rem;
     }
 
     .wizard-current-page,

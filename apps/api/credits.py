@@ -19,7 +19,11 @@ from typing import Optional
 
 _SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 _SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-_DEV_MODE = not _SUPABASE_URL or not _SERVICE_KEY
+_DEV_MODE = (
+    not _SUPABASE_URL
+    or not _SERVICE_KEY
+    or os.environ.get("DISABLE_CREDITS", "").lower() in ("1", "true", "yes")
+)
 
 _client_cache: Optional[object] = None
 

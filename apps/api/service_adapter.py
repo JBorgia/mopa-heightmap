@@ -376,8 +376,7 @@ def do_export_lbrn2(
     import zipfile
     from xml.dom import minidom
 
-    from mopa.lbrn_writer import build_lbrn_tree
-    from mopa.exporter import save_master16_png
+    from mopa.lbrn_writer import build_lbrn_tree, make_thumbnail_b64
 
     plan = get_plan(plan_id)
     if plan is None:
@@ -443,7 +442,7 @@ def do_export_lbrn2(
             png_path = bundle_dir / png_name
             mask = ep.mask.astype(np.float32, copy=False)
             layer = np.clip(1.0 - (1.0 - hm) * mask, 0.0, 1.0).astype(np.float32)
-            save_master16_png(layer, png_path)
+            save_lightburn_png(layer, png_path)
             png_paths.append((png_name, png_path))
             # Embed the PNG bytes as base64 inside the .lbrn2 — without
             # this the writer falls through to a stub Shape with no
@@ -453,6 +452,7 @@ def do_export_lbrn2(
             shapes.append(ShapeRef(
                 cut_index=ep.cut_setting.index,
                 shape_type="Bitmap",
+                source_file=png_name,
                 source_path=png_path,
                 embed_data=True,
                 physical_width_mm=print_w_mm,
@@ -481,28 +481,34 @@ def do_export_lbrn2(
                 # mask silhouette correctly aligned.
                 _orig = Image.open(io.BytesIO(mask_bytes))
                 _orig.load()
-                if _orig.size != (px_w, px_h):
-                    fit_scale = min(px_w / _orig.width, px_h / _orig.height)
-                    fit_w = max(1, int(round(_orig.width * fit_scale)))
-                    fit_h = max(1, int(round(_orig.height * fit_scale)))
-                    _resized = _orig.resize((fit_w, fit_h), Image.Resampling.LANCZOS)
+                _final = _orig
+                if _final.size != (px_w, px_h):
+                    fit_scale = min(px_w / _final.width, px_h / _final.height)
+                    fit_w = max(1, int(round(_final.width * fit_scale)))
+                    fit_h = max(1, int(round(_final.height * fit_scale)))
+                    _resized = _final.resize((fit_w, fit_h), Image.Resampling.LANCZOS)
                     # Pad to exact heightmap dims so the XForm math matches
                     # the depth pass — black surrounds the mask silhouette,
                     # which keeps "no engrave outside the subject" semantics.
-                    _padded = Image.new(_resized.mode, (px_w, px_h), color=0)
+                    _final = Image.new(_resized.mode, (px_w, px_h), color=0)
                     paste_x = (px_w - fit_w) // 2
                     paste_y = (px_h - fit_h) // 2
-                    _padded.paste(_resized, (paste_x, paste_y))
-                    mask_buf = io.BytesIO()
-                    _padded.save(mask_buf, format="PNG")
-                    mask_bytes = mask_buf.getvalue()
-                # Write the (resized) mask PNG to the scratch dir so the
-                # writer can read it for embedding. DON'T append it to
-                # ``png_paths``: the mask is embedded as base64 inside the
-                # .lbrn2 (embed_data=True below), and the bundle endpoint
-                # writes a standalone ``subject_mask.png`` from the
-                # ORIGINAL (un-resized) blob as a reference artifact, so
-                # the user gets the source-resolution mask too.
+                    _final.paste(_resized, (paste_x, paste_y))
+                # LightBurn can't decode 16-bit PNGs embedded as Bitmap Data;
+                # the blob store saves masks as I;16. Convert to 8-bit "L"
+                # so the layer renders instead of showing "zero height/width".
+                if _final.mode != "L":
+                    _final = _final.convert("L")
+                mask_buf = io.BytesIO()
+                _final.save(mask_buf, format="PNG")
+                mask_bytes = mask_buf.getvalue()
+                # Write the mask PNG to the scratch dir so the writer can
+                # read it for embedding. DON'T append it to ``png_paths``:
+                # the mask is embedded as base64 inside the .lbrn2
+                # (embed_data=True below), and the bundle endpoint writes a
+                # standalone ``subject_mask.png`` from the ORIGINAL blob as
+                # a reference artifact, so the user gets the source-resolution
+                # mask too.
                 mask_path = bundle_dir / "subject_mask.png"
                 mask_path.write_bytes(mask_bytes)
 
@@ -535,7 +541,7 @@ def do_export_lbrn2(
                     "name": f"M{mask_index:02d}_subject_mask",
                     "maxPower": "0",
                     "maxPower2": "0",
-                    "output": "0",
+                    "doOutput": "0",
                 })
                 mask_entry = _ColorEntry(
                     index=mask_index,
@@ -551,16 +557,29 @@ def do_export_lbrn2(
                 shapes.append(ShapeRef(
                     cut_index=mask_index,
                     shape_type="Bitmap",
+                    source_file="subject_mask.png",
                     source_path=mask_path,
                     embed_data=True,
                     physical_width_mm=print_w_mm,
                     physical_height_mm=print_h_mm,
                 ))
 
+        import datetime as _dt
+        _profile_label = profile_name or "default"
+        _ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        _notes = (
+            f"Generated by MOPA Heightmap Studio\n"
+            f"Profile: {_profile_label}\n"
+            f"Size: {print_w_mm:.1f}×{print_h_mm:.1f} mm\n"
+            f"Exported: {_ts}"
+        )
         tree = build_lbrn_tree(
             entries=list(used.values()),
             shapes=shapes,
-            app_version=profile.app_version or "1.2.04",
+            app_version=profile.app_version or "1.7.00",
+            thumbnail_b64=make_thumbnail_b64(hm),
+            image_negative=bool(profile_payload.get("polarity_invert", False)),
+            notes=_notes,
         )
         xml_bytes = ET.tostring(tree.getroot(), encoding="utf-8")
         pretty = minidom.parseString(xml_bytes).toprettyxml(indent="  ", encoding="utf-8")

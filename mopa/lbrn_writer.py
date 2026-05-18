@@ -247,7 +247,7 @@ def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
             "EnhanceAmount": "0",
             "EnhanceRadius": "0",
             "EnhanceDenoise": "0",
-            "File": str(png_path.resolve()),
+            "File": ref.source_file if ref.source_file is not None else png_path.name,
             "SourceHash": _source_hash(png_bytes),
             "Data": base64.b64encode(png_bytes).decode("ascii"),
         })
@@ -340,6 +340,7 @@ def build_lbrn_tree(
     image_pass_count: int = 256,
     image_negative: bool = False,
     image_dpi: int = 1270,
+    notes: Optional[str] = None,
 ) -> ET.ElementTree:
     """Construct the in-memory ``ElementTree`` for a LightBurn project.
 
@@ -372,6 +373,8 @@ def build_lbrn_tree(
         },
     )
     _emit_project_boilerplate(root, thumbnail_b64=thumbnail_b64)
+    if notes:
+        ET.SubElement(root, "Notes", {"ShowOnLoad": "0", "Notes": notes})
     # An entry is emitted in image-mode when any shape attached to it is a
     # Bitmap (the .lbrn2's depth pass and color/photo-tonal passes). Vector
     # shapes (Path / Text / future signature) keep the Scan-style emit.
