@@ -54,7 +54,7 @@ export const WIZARD_STAGE_SUMMARIES = [
 
 export const WIZARD_DEFAULT_SPLITTER_SIZES = [68, 32] as const;
 export const WIZARD_COLLAPSED_SPLITTER_SIZES = [100, 0] as const;
-export const WIZARD_HISTORY_PREVIEW_LIMIT = 5;
+export const WIZARD_HISTORY_PREVIEW_LIMIT = 8;
 export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
   { label: 'BiRefNet (best quality)', value: 'birefnet' },
   { label: 'Rembg (fast)', value: 'rembg' },
@@ -733,21 +733,29 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
             <section class="wizard-history">
               <h2>Session activity</h2>
               @if (historyPreview().length > 0) {
-                <ul>
-                  @for (entry of historyPreview(); track entry.id) {
-                    <li>
-                      <strong [title]="entry.action">{{ entry.action }}</strong>
-                      <span>
-                        {{ relativeTime(entry.timestampIso) }}
-                        @if (entry.durationMs !== undefined) {
-                          · {{ formatDuration(entry.durationMs) }}
-                        }
-                      </span>
-                    </li>
+                <div class="activity-timeline">
+                  @for (entry of historyPreview(); track entry.id; let last = $last; let first = $first) {
+                    <div class="activity-item">
+                      <div class="activity-connector">
+                        <div class="activity-dot" [class]="'cat-' + actionCategory(entry.action)" [class.pulse]="first">
+                          {{ actionIcon(entry.action) }}
+                        </div>
+                        @if (!last) { <div class="activity-line"></div> }
+                      </div>
+                      <div class="activity-body">
+                        <span class="activity-label" [title]="entry.action">{{ actionLabel(entry.action) }}</span>
+                        <div class="activity-meta">
+                          <span class="activity-time">{{ relativeTime(entry.timestampIso) }}</span>
+                          @if (entry.durationMs !== undefined) {
+                            <span class="activity-badge">{{ formatDuration(entry.durationMs) }}</span>
+                          }
+                        </div>
+                      </div>
+                    </div>
                   }
-                </ul>
+                </div>
               } @else {
-                <p class="muted">Your last {{ 5 }} actions will appear here as you work through the steps.</p>
+                <p class="muted">Your last {{ wizardHistoryLimit }} actions will appear here as you work.</p>
               }
             </section>
           </div>
@@ -1197,6 +1205,117 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       border-radius: 1rem;
       padding: 1rem;
       background: var(--bg-sunken);
+    }
+
+    .activity-timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .activity-item {
+      display: flex;
+      gap: 0.6rem;
+      align-items: flex-start;
+      min-width: 0;
+    }
+
+    .activity-connector {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+      width: 1.5rem;
+    }
+
+    .activity-dot {
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.6rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+      background: var(--text-muted);
+      position: relative;
+      z-index: 1;
+    }
+
+    .activity-dot.cat-upload  { background: #c2540a; }
+    .activity-dot.cat-ai      { background: #7c3aed; }
+    .activity-dot.cat-render  { background: #2563eb; }
+    .activity-dot.cat-plan    { background: #059669; }
+    .activity-dot.cat-mask    { background: #db2777; }
+    .activity-dot.cat-export  { background: #16a34a; }
+
+    @keyframes dot-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+      50%       { box-shadow: 0 0 0 4px transparent; opacity: 0.85; }
+    }
+
+    .activity-dot.pulse {
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+    .activity-dot.cat-upload.pulse  { color: #c2540a; }
+    .activity-dot.cat-ai.pulse      { color: #7c3aed; }
+    .activity-dot.cat-render.pulse  { color: #2563eb; }
+    .activity-dot.cat-plan.pulse    { color: #059669; }
+    .activity-dot.cat-mask.pulse    { color: #db2777; }
+    .activity-dot.cat-export.pulse  { color: #16a34a; }
+    .activity-dot.cat-nav.pulse     { color: var(--text-muted); }
+
+    .activity-line {
+      width: 1px;
+      flex: 1;
+      min-height: 0.75rem;
+      background: var(--border-default);
+      margin: 1px 0;
+    }
+
+    .activity-body {
+      flex: 1;
+      min-width: 0;
+      padding: 0.15rem 0 0.75rem;
+    }
+
+    .activity-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+
+    .activity-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.1rem;
+      flex-wrap: nowrap;
+    }
+
+    .activity-time {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .activity-badge {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-input);
+      border-radius: 999px;
+      padding: 0 0.4rem;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .preview-tile {
@@ -2010,6 +2129,44 @@ export class WizardShellComponent {
   protected pageStatusLabel(index: number): string {
     if (this.pageStatus(index) === 'complete') return 'complete';
     return WIZARD_PAGE_OPTIONAL[index] ? 'optional, not done' : 'not yet done';
+  }
+
+  protected readonly wizardHistoryLimit = WIZARD_HISTORY_PREVIEW_LIMIT;
+
+  protected actionCategory(action: string): string {
+    if (action.startsWith('session:upload') || action.startsWith('heightmap:upload')) return 'upload';
+    if (action.startsWith('sculptok')) return 'ai';
+    if (action.startsWith('render')) return 'render';
+    if (action.startsWith('plan')) return 'plan';
+    if (action.startsWith('mask')) return 'mask';
+    if (action.startsWith('export')) return 'export';
+    return 'nav';
+  }
+
+  protected actionIcon(action: string): string {
+    if (action.startsWith('session:upload') || action.startsWith('heightmap:upload')) return '↑';
+    if (action.startsWith('sculptok')) return '✦';
+    if (action.startsWith('render')) return '▲';
+    if (action.startsWith('plan')) return '≡';
+    if (action.startsWith('mask')) return '◎';
+    if (action.startsWith('export')) return '↓';
+    return '·';
+  }
+
+  protected actionLabel(action: string): string {
+    if (action.startsWith('session:upload:')) return action.slice('session:upload:'.length);
+    if (action === 'heightmap:upload') return 'Depth map uploaded';
+    if (action === 'sculptok:generate') return 'Depth map generated';
+    if (action === 'render:run') return 'Heightmap rendered';
+    if (action.startsWith('plan:compute:')) return `Plan: ${action.slice('plan:compute:'.length)}`;
+    if (action === 'mask:create') return 'Subject mask created';
+    if (action.startsWith('mask:click-refine:')) return `Mask refined (${action.slice('mask:click-refine:'.length)})`;
+    if (action === 'export:png') return 'Exported PNG';
+    if (action === 'export:lbrn2') return 'Exported .lbrn2';
+    if (action === 'export:stl') return 'Exported STL';
+    if (action.startsWith('export:bundle:')) return `Bundle: ${action.slice('export:bundle:'.length)}`;
+    if (action.startsWith('Navigated to ')) return action.slice('Navigated to '.length);
+    return action;
   }
 
   protected blobUrl(id: string): string {
