@@ -462,107 +462,12 @@ def do_export_lbrn2(
         profile = plan.profile
         used = {ep.cut_setting.index: ep.cut_setting for ep in plan.passes}
 
-        # Subject mask as a non-engraving layer. Output=0 keeps LightBurn
-        # from firing it; numPasses=0 is a belt-and-braces second guard.
-        # The user can toggle the layer's visibility/output to use the
-        # mask as a guide (manual vector cuts inside the silhouette,
-        # secondary anneal pass, etc.) without losing it as a deliverable.
-        if subject_mask_id:
-            mask_bytes = blob_store.load_bytes(subject_mask_id)
-            if mask_bytes is not None:
-                # Resize the mask to match the heightmap pixel dimensions
-                # before embedding. Subject masks come from /mask in
-                # source-photo pixel space (e.g. 539×360), while the
-                # heightmap is in sculptok space (e.g. 960×1280) — usually
-                # a different aspect ratio. Without resizing, the writer
-                # computes a different XForm scale for each shape and the
-                # mask renders stretched relative to the depth layer in
-                # LightBurn. Aspect-preserving "contain" fit keeps the
-                # mask silhouette correctly aligned.
-                _orig = Image.open(io.BytesIO(mask_bytes))
-                _orig.load()
-                _final = _orig
-                if _final.size != (px_w, px_h):
-                    fit_scale = min(px_w / _final.width, px_h / _final.height)
-                    fit_w = max(1, int(round(_final.width * fit_scale)))
-                    fit_h = max(1, int(round(_final.height * fit_scale)))
-                    _resized = _final.resize((fit_w, fit_h), Image.Resampling.LANCZOS)
-                    # Pad to exact heightmap dims so the XForm math matches
-                    # the depth pass — black surrounds the mask silhouette,
-                    # which keeps "no engrave outside the subject" semantics.
-                    _final = Image.new(_resized.mode, (px_w, px_h), color=0)
-                    paste_x = (px_w - fit_w) // 2
-                    paste_y = (px_h - fit_h) // 2
-                    _final.paste(_resized, (paste_x, paste_y))
-                # LightBurn can't decode 16-bit PNGs embedded as Bitmap Data;
-                # the blob store saves masks as I;16. Convert to 8-bit "L"
-                # so the layer renders instead of showing "zero height/width".
-                if _final.mode != "L":
-                    _final = _final.convert("L")
-                mask_buf = io.BytesIO()
-                _final.save(mask_buf, format="PNG")
-                mask_bytes = mask_buf.getvalue()
-                # Write the mask PNG to the scratch dir so the writer can
-                # read it for embedding. DON'T append it to ``png_paths``:
-                # the mask is embedded as base64 inside the .lbrn2
-                # (embed_data=True below), and the bundle endpoint writes a
-                # standalone ``subject_mask.png`` from the ORIGINAL blob as
-                # a reference artifact, so the user gets the source-resolution
-                # mask too.
-                mask_path = bundle_dir / "subject_mask.png"
-                mask_path.write_bytes(mask_bytes)
-
-                from mopa.lightburn_cards import ColorEntry as _ColorEntry
-                # Pick the next free index — above any existing plan-pass
-                # index to avoid collisions with depth / photo-tonal /
-                # signature layers.
-                mask_index = max([99, *(used.keys())]) + 1 if used else 99
-                # Clone the depth pass's CutSetting structure verbatim and
-                # only flip the fields that need to be different. Building
-                # the CutSetting from scratch is fragile — LightBurn 1.7
-                # crashes when fields like ``bidir`` / ``priority`` /
-                # ``tabCount`` / ``tabCountMax`` are missing, when
-                # ``numPasses`` is 0, or when ``subname`` is not one of
-                # the known values. Cloning guarantees the XML schema
-                # matches LightBurn's expectations.
-                depth_pass = plan.passes[0] if plan.passes else None
-                depth_raw = (
-                    dict(depth_pass.cut_setting.raw)
-                    if depth_pass and depth_pass.cut_setting.raw
-                    else {}
-                )
-                # Overrides — index / name move the layer, maxPower=0 and
-                # output=0 keep it from firing if the user accidentally
-                # enables it, name keeps it identifiable in the LightBurn
-                # layer list.
-                mask_raw = dict(depth_raw)
-                mask_raw.update({
-                    "index": str(mask_index),
-                    "name": f"M{mask_index:02d}_subject_mask",
-                    "maxPower": "0",
-                    "maxPower2": "0",
-                    "doOutput": "0",
-                })
-                mask_entry = _ColorEntry(
-                    index=mask_index,
-                    name=f"M{mask_index:02d}",
-                    max_power=0.0,
-                    speed=depth_pass.cut_setting.speed if depth_pass else 1000.0,
-                    frequency=depth_pass.cut_setting.frequency if depth_pass else 20000,
-                    q_pulse_width=depth_pass.cut_setting.q_pulse_width if depth_pass else 100,
-                    interval=depth_pass.cut_setting.interval if depth_pass else 0.1,
-                    raw=mask_raw,
-                )
-                used[mask_index] = mask_entry
-                shapes.append(ShapeRef(
-                    cut_index=mask_index,
-                    shape_type="Bitmap",
-                    source_file="subject_mask.png",
-                    source_path=mask_path,
-                    embed_data=True,
-                    physical_width_mm=print_w_mm,
-                    physical_height_mm=print_h_mm,
-                ))
+        # NOTE: the subject mask is intentionally NOT added as a layer inside
+        # the .lbrn2. When embedded, the white coin silhouette renders on top
+        # of the depth bitmap in LightBurn's canvas and hides the relief
+        # detail. The mask is shipped as a standalone subject_mask.png in the
+        # bundle zip (written by the bundle endpoint from the original blob)
+        # so the operator can reference or import it separately if needed.
 
         import datetime as _dt
         _profile_label = profile_name or "default"
