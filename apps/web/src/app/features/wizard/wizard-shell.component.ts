@@ -120,6 +120,9 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                 </button>
               }
             </div>
+            <div class="wizard-progress-track" role="progressbar" [attr.aria-valuenow]="wizardProgress()" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="'Wizard progress: ' + wizardProgress() + '%'">
+              <div class="wizard-progress-fill" [style.width.%]="wizardProgress()"></div>
+            </div>
           </ng-template>
 
           <div class="wizard-content-grid">
@@ -941,6 +944,21 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       grid-template-columns: repeat(5, 1fr);
       gap: 0.4rem;
       padding: 0.75rem 1.5rem 0;
+    }
+
+    .wizard-progress-track {
+      margin: 0.5rem 1.5rem 0;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--bg-sunken);
+      overflow: hidden;
+    }
+
+    .wizard-progress-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--accent);
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .page-chip,
@@ -1828,6 +1846,19 @@ export class WizardShellComponent {
     () => this.authService.isAuthenticated() && this.authService.creditsRemaining() <= 0,
   );
 
+  /** Overall wizard completion 0-100 based on how many steps have their artifact. */
+  protected readonly wizardProgress = computed(() => {
+    const total = this.wizardPageLabels.length;
+    let done = 0;
+    for (let i = 0; i < total; i++) {
+      if (this.pageStatus(i) === 'complete') done++;
+    }
+    return Math.round((done / total) * 100);
+  });
+
+  /** Records which pages have already triggered an auto-advance so going back doesn't re-fire. */
+  private readonly _autoAdvanced = signal(new Set<number>());
+
   /**
    * Tracks the (image, heightmap, profile) tuple the auto-plan effect last
    * dispatched a compute for. Without this the effect would loop, since
@@ -1911,6 +1942,41 @@ export class WizardShellComponent {
       if (this.planService.inFlight()) return;
       this.lastAutoPlanKey.set(key);
       this.planService.computePlan();
+    });
+
+    // Auto-advance: when the current step's artifact is produced, move to the
+    // next step automatically. Uses _autoAdvanced so manually going back to a
+    // completed step doesn't hijack the user forward again.
+    effect(() => {
+      const page = this.ui().wizardPage;
+      if (page >= this.wizardPageLabels.length - 1) return;
+      if (this.pageStatus(page) !== 'complete') return;
+      untracked(() => {
+        if (this._autoAdvanced().has(page)) return;
+        this._autoAdvanced.update(s => { const n = new Set(s); n.add(page); return n; });
+        this.selectPage((page + 1) as 0 | 1 | 2 | 3 | 4);
+      });
+    });
+
+    // Resume: on first load, if the session already has artifacts jump to the
+    // furthest meaningful step so the user doesn't click Next repeatedly.
+    effect(() => {
+      const out = this.output();
+      const sess = this.session();
+      untracked(() => {
+        if (this.ui().wizardPage !== 0) return; // user or prior effect already set a page
+        if (this._autoAdvanced().size > 0) return; // auto-advance already kicked in
+        let target = 0;
+        if (sess.imageId) target = 2;
+        if (out.heightmapId) target = 3;
+        if (out.plan) target = 4;
+        if (target > 0) {
+          // Seed _autoAdvanced for all steps before target so the auto-advance
+          // effect won't fire again on pages we're skipping over.
+          this._autoAdvanced.update(() => new Set(Array.from({length: target}, (_, i) => i)));
+          this.selectPage(target as 0 | 1 | 2 | 3 | 4);
+        }
+      });
     });
   }
 
