@@ -73,6 +73,7 @@ export class RenderService {
       .subscribe({
         next: (response) => {
           this.blobCache.get(response.image_hash);
+          const hadPlan = !!this.sessionTree.state().output.plan;
           this.sessionTree.patchState((current) => ({
             ...current,
             session: {
@@ -91,6 +92,14 @@ export class RenderService {
               elapsedSeconds: response.elapsed_s,
             },
           }));
+          if (hadPlan) {
+            this.sessionTree.addToast({
+              id: crypto.randomUUID(),
+              severity: 'info',
+              summary: 'Pass plan invalidated',
+              detail: 'Heightmap changed — recomputing pass plan automatically.',
+            });
+          }
           this.sessionTree.pushHistory(
             'render:run',
             Math.round((response.elapsed_s ?? 0) * 1000),

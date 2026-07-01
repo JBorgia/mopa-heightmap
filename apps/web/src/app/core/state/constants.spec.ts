@@ -178,8 +178,8 @@ describe('wizard-shell constants', () => {
     expect(WIZARD_COLLAPSED_SPLITTER_SIZES[1]).toBe(0);
   });
 
-  it('WIZARD_HISTORY_PREVIEW_LIMIT is 5', () => {
-    expect(WIZARD_HISTORY_PREVIEW_LIMIT).toBe(5);
+  it('WIZARD_HISTORY_PREVIEW_LIMIT is 8', () => {
+    expect(WIZARD_HISTORY_PREVIEW_LIMIT).toBe(8);
   });
 
   it('WIZARD_MASK_BACKENDS lists birefnet / rembg / threshold', () => {

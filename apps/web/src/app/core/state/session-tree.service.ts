@@ -106,6 +106,16 @@ export class SessionTreeService {
     }));
   }
 
+  setExportSelection(format: 'png' | 'lbrn2' | 'stl', enabled: boolean): void {
+    const key = format === 'png' ? 'exportPngEnabled'
+              : format === 'lbrn2' ? 'exportLbrn2Enabled'
+              : 'exportStlEnabled';
+    this.store.patch((current) => ({
+      ...current,
+      ui: { ...current.ui, [key]: enabled },
+    }));
+  }
+
   addToast(toast: StudioState['ui']['toasts'][number]): void {
     this.store.patch((current) => ({
       ...current,

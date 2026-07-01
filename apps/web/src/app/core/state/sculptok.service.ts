@@ -154,9 +154,12 @@ export class SculptokService {
             detail: `Used ${resp.credits_used} credits — ${resp.credits_remaining} remaining`,
           });
           this.sessionTree.pushHistory('sculptok:generate');
-          this.inFlight.set(false);
-          // Reset stage after a short pause so the "Done" state is visible
-          globalThis.setTimeout(() => this.stage.set('idle'), 2000);
+          // Keep inFlight true until stage resets so a rapid re-click can't
+          // start a new request while the "Done" state is still visible.
+          globalThis.setTimeout(() => {
+            this.stage.set('idle');
+            this.inFlight.set(false);
+          }, 2000);
         },
         error: (err) => {
           const detail = err?.error?.detail ?? err?.message ?? 'Unknown error';
@@ -167,8 +170,12 @@ export class SculptokService {
             summary: 'Sculptok generate failed',
             detail,
           });
-          this.inFlight.set(false);
-          globalThis.setTimeout(() => this.stage.set('idle'), 3000);
+          // Keep inFlight true until stage resets so the user sees the error
+          // state before they can retry.
+          globalThis.setTimeout(() => {
+            this.stage.set('idle');
+            this.inFlight.set(false);
+          }, 3000);
         },
       });
   }
