@@ -56,7 +56,7 @@ def _heightmap():
 
 def test_constants_have_documented_values():
     assert LBRN_FORMAT_VERSION == "1"
-    assert LBRN_DEFAULT_APP_VERSION == "1.2.04"
+    assert LBRN_DEFAULT_APP_VERSION == "1.7.00"
     assert LBRN_DEFAULT_MIRROR_X == "False"
     assert LBRN_DEFAULT_MIRROR_Y == "False"
     assert LBRN_DEFAULT_MATERIAL_HEIGHT == 0.0

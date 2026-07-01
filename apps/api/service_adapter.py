@@ -46,6 +46,7 @@ from mopa.heightmap import to_uint16
 from mopa.lightburn_cards import (
     DEFAULT_CARDS_DIR,
     DEFAULT_PROFILE_NAME,
+    ColorEntry,
     load_lightburn_card,
 )
 from mopa.lbrn_writer import build_lbrn_tree, ShapeRef
@@ -338,6 +339,23 @@ def do_export_png(heightmap_id: str, bit_depth: int = 16) -> bytes:
     return buf.getvalue()
 
 
+def _apply_subject_mask_to_heightmap(
+    hm: np.ndarray,
+    mask_arr: np.ndarray,
+) -> np.ndarray:
+    """Bake a subject mask into a heightmap before per-pass PNG generation.
+
+    mask_arr: float32 (H, W), 1.0 = subject (engrave), 0.0 = background (skip).
+    hm:       float32 (H, W), LightBurn polarity: 0.0 = deepest cut, 1.0 = surface (no engraving).
+
+    Uses the same blending formula as the per-pass layer computation so
+    background pixels (mask≈0) are raised to 1.0 (no engraving) with a
+    smooth gradient at soft edges. Does NOT binarize — rembg/BiRefNet
+    soft alpha is preserved directly.
+    """
+    return np.clip(1.0 - (1.0 - hm) * mask_arr, 0.0, 1.0).astype(np.float32)
+
+
 def list_profile_names() -> list[str]:
     return list_profiles()
 
@@ -363,9 +381,16 @@ def do_export_lbrn2(
     when the user unzips the bundle to any directory and opens the
     project, every bitmap layer loads correctly.
 
-    When ``subject_mask_id`` is supplied, the mask is added as an
-    additional Bitmap shape on a non-engraving layer (Output=0) so the
-    user can see + toggle it in LightBurn without it firing by accident.
+    When ``subject_mask_id`` is supplied and the profile is not a coin
+    (``shape: circle``), the mask is **baked** into the depth heightmap
+    before per-pass PNGs are computed. Background pixels (mask≈0) are
+    raised to 1.0 (LightBurn white = no engraving) using the mask's soft
+    alpha directly, without binarizing. LightBurn cannot clip via a raster
+    PNG — only vector shapes (Ellipse MaskID) can do that. The standalone
+    ``subject_mask.png`` ships separately in the bundle zip for LightBurn's
+    Trace Image workflow if the user wants an editable vector boundary.
+    Coin profiles (``shape: circle``) use a Tool-layer Ellipse MaskID for
+    geometric clipping and skip the pixel-baking step.
 
     Returns the raw zip bytes; the route layer sets the proper content-
     disposition + media-type.
@@ -431,51 +456,129 @@ def do_export_lbrn2(
         print_w_mm = float(px_w) * mm_per_px
         print_h_mm = float(px_h) * mm_per_px
 
+    # Centre of the LightBurn work area (175 × 175 mm bed → 87.5 mm each axis).
+    # Images and Ellipse shapes are placed at this point so they open centred
+    # on the bed without the user having to move them manually.
+    _BED_CENTER_MM = 87.5
+
+    # Pad the per-pass PNGs to a square so that any mask shape (circle,
+    # rectangle, custom) in LightBurn always has content to clip against.
+    # The extra area is filled with 1.0 (white = no engraving) so the laser
+    # never fires in the padding region. Physical size of the padded square
+    # = the larger of the two contain-fit dimensions.
+    sq_mm = max(print_w_mm, print_h_mm)
+    sq_px = max(px_w, px_h)
+
+    # Detect coin profile: explicit shape=circle declaration triggers
+    # Tool-layer Ellipse clipping instead of pixel-level mask baking.
+    add_coin_circle = (
+        profile_payload.get("shape") == "circle"
+        and box_w is not None and box_h is not None
+    )
+
+    # Bake subject mask into the heightmap array before any per-pass PNG is
+    # computed. This is the only guarantee that background pixels don't fire
+    # on the laser — a non-engraving .lbrn2 layer (the old M-layer) provided
+    # no such guarantee because it didn't touch the depth data.
+    # Coin profiles skip baking: the Ellipse MaskID handles geometric clipping.
+    if subject_mask_id is not None and not add_coin_circle:
+        _mask_arr = blob_store.load_heightmap(subject_mask_id)
+        if _mask_arr is not None:
+            if _mask_arr.shape != (px_h, px_w):
+                _mask_pil = Image.fromarray(
+                    (np.clip(_mask_arr, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8),
+                    mode="L",
+                ).resize((px_w, px_h), Image.LANCZOS)
+                _mask_arr = np.asarray(_mask_pil, dtype=np.float32) / 255.0
+            hm = _apply_subject_mask_to_heightmap(hm, _mask_arr)
+
     # Materialise per-pass PNGs into a scratch dir, then zip them up with
     # the project. Scratch dir is cleaned up before this function returns.
     bundle_dir = Path(tempfile.mkdtemp(prefix="mopa_lbrn2_"))
     try:
-        shapes = []
+        depth_shapes = []
         png_paths: list[tuple[str, Path]] = []
         for idx, ep in enumerate(plan.passes):
             png_name = f"pass_{idx:02d}_{ep.kind.replace(':', '_')}.png"
             png_path = bundle_dir / png_name
             mask = ep.mask.astype(np.float32, copy=False)
             layer = np.clip(1.0 - (1.0 - hm) * mask, 0.0, 1.0).astype(np.float32)
+            # Flip vertically: LightBurn's Y axis is downward (top = y=0);
+            # the heightmap is stored top-row-first which renders upside-down
+            # on the bed. flipud corrects the engraving to match the original photo.
+            layer = np.flipud(layer)
+            # Pad non-square layers to a square with white (1.0 = no engraving)
+            # so any LightBurn mask shape (circle, rectangle) has full coverage.
+            if layer.shape[0] != layer.shape[1]:
+                pad_h, pad_w = layer.shape
+                padded = np.ones((sq_px, sq_px), dtype=np.float32)
+                y0 = (sq_px - pad_h) // 2
+                x0 = (sq_px - pad_w) // 2
+                padded[y0:y0 + pad_h, x0:x0 + pad_w] = layer
+                layer = padded
             save_lightburn_png(layer, png_path)
             png_paths.append((png_name, png_path))
-            # Embed the PNG bytes as base64 inside the .lbrn2 — without
-            # this the writer falls through to a stub Shape with no
-            # SourceFile and LightBurn can't load the bitmap. The
-            # source_file field on ShapeRef is kept for legacy callers
-            # but the writer's only working path is embed_data + source_path.
-            shapes.append(ShapeRef(
+            depth_shapes.append(ShapeRef(
                 cut_index=ep.cut_setting.index,
                 shape_type="Bitmap",
                 source_file=png_name,
                 source_path=png_path,
                 embed_data=True,
-                physical_width_mm=print_w_mm,
-                physical_height_mm=print_h_mm,
+                physical_width_mm=sq_mm,
+                physical_height_mm=sq_mm,
+                center_x_mm=_BED_CENTER_MM,
+                center_y_mm=_BED_CENTER_MM,
             ))
 
         profile = plan.profile
         used = {ep.cut_setting.index: ep.cut_setting for ep in plan.passes}
 
-        # NOTE: the subject mask is intentionally NOT added as a layer inside
-        # the .lbrn2. When embedded, the white coin silhouette renders on top
-        # of the depth bitmap in LightBurn's canvas and hides the relief
-        # detail. The mask is shipped as a standalone subject_mask.png in the
-        # bundle zip (written by the bundle endpoint from the original blob)
-        # so the operator can reference or import it separately if needed.
+        if add_coin_circle:
+            # Ellipse will be inserted at this position in the final list.
+            ellipse_shape_id = len(depth_shapes)
+            # Rebuild depth shapes with MaskID pointing at the Ellipse.
+            depth_shapes = [
+                ShapeRef(
+                    cut_index=s.cut_index,
+                    shape_type=s.shape_type,
+                    source_file=s.source_file,
+                    source_path=s.source_path,
+                    embed_data=s.embed_data,
+                    physical_width_mm=s.physical_width_mm,
+                    physical_height_mm=s.physical_height_mm,
+                    center_x_mm=s.center_x_mm,
+                    center_y_mm=s.center_y_mm,
+                    mask_id=ellipse_shape_id,
+                )
+                for s in depth_shapes
+            ]
+
+        shapes = list(depth_shapes)
+
+        if add_coin_circle:
+            coin_radius = min(print_w_mm, print_h_mm) / 2.0
+            shapes.append(ShapeRef(
+                cut_index=30,
+                shape_type="Ellipse",
+                rx=coin_radius,
+                ry=coin_radius,
+                used_by_id=0,  # first depth Bitmap's ShapeID
+                xform=(1.0, 0.0, 0.0, 1.0, _BED_CENTER_MM, _BED_CENTER_MM),
+            ))
+            # Tool layer entry — LightBurn's fixed slot 30.
+            used[30] = ColorEntry(
+                index=30, name="T1",
+                max_power=0.0, speed=0.0, frequency=0, q_pulse_width=0, interval=0.0,
+                raw={"index": "30", "name": "T1", "priority": "1"},
+            )
 
         import datetime as _dt
         _profile_label = profile_name or "default"
         _ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         _notes = (
-            f"Generated by MOPA Heightmap Studio\n"
-            f"Profile: {_profile_label}\n"
-            f"Size: {print_w_mm:.1f}×{print_h_mm:.1f} mm\n"
+            f"Generated by MOPA Heightmap Studio | "
+            f"Profile: {_profile_label} | "
+            f"Size: {print_w_mm:.1f}x{print_h_mm:.1f} mm | "
             f"Exported: {_ts}"
         )
         tree = build_lbrn_tree(

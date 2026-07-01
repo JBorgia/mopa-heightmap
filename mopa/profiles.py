@@ -136,6 +136,9 @@ _KNOWN_TOP_LEVEL_KEYS = {
     # size instead of the writer's 50 mm fallback.
     "print_width_mm",
     "print_height_mm",
+    # Export geometry: "circle" clips the engraving to an Ellipse (coin/medallion);
+    # omit or set to "rectangle" for plaques and flat stock.
+    "shape",
     "__profile_path__",
 }
 

@@ -78,7 +78,7 @@ LBRN_FORMAT_VERSION: str = "1"
 # Fallback AppVersion stamped into freshly-authored projects when no source
 # card AppVersion is available. Chosen to match the user's supplied cards so
 # downstream tooling sees a familiar version string.
-LBRN_DEFAULT_APP_VERSION: str = "1.2.04"
+LBRN_DEFAULT_APP_VERSION: str = "1.7.00"
 
 # Whole-project mirror flags. Defaults match the supplied 60W card.
 LBRN_DEFAULT_MIRROR_X: str = "False"
@@ -121,6 +121,18 @@ class ShapeRef:
     physical_width_mm: Optional[float] = None
     physical_height_mm: Optional[float] = None
     embed_data: bool = False
+    # Bitmap clipping: set mask_id to the ShapeID of the Ellipse that clips it.
+    mask_id: Optional[int] = None
+    # Ellipse fields: Rx/Ry in mm, UsedByID = ShapeID of the Bitmap being clipped.
+    rx: Optional[float] = None
+    ry: Optional[float] = None
+    used_by_id: Optional[int] = None
+    # Workspace position of the shape centre (mm). When set, overrides the
+    # default of placing the centre at (mm_w/2, mm_h/2) which lands the
+    # image at the workspace origin. Pass (87.5, 87.5) to centre on a
+    # 175 × 175 mm bed.
+    center_x_mm: Optional[float] = None
+    center_y_mm: Optional[float] = None
 
 
 # ---------------------------------------------------------- value helpers
@@ -146,6 +158,7 @@ def _emit_cut_setting(
     entry: ColorEntry,
     *,
     image_mode: bool = False,
+    tool_mode: bool = False,
     image_pass_count: int = 256,
     image_negative: bool = False,
     image_dpi: int = 1270,
@@ -159,9 +172,13 @@ def _emit_cut_setting(
     (``ditherMode``, ``numPasses``, ``negative``, ``dpi``) so LightBurn
     opens them in the correct mode. Vector passes (signature text,
     cut-lines) use the original ``<CutSetting type="Scan">``.
+    Tool-layer passes (reference circles, alignment marks) use
+    ``<CutSetting type="Tool">``.
     """
     if image_mode:
         cs = ET.SubElement(parent, "CutSetting_Img", {"type": "Image"})
+    elif tool_mode:
+        cs = ET.SubElement(parent, "CutSetting", {"type": "Tool"})
     else:
         cs = ET.SubElement(parent, "CutSetting", {"type": entry.cut_type})
 
@@ -201,9 +218,21 @@ def _emit_cut_setting(
             ET.SubElement(cs, "subname").set("Value", "3D Slice")
         if not (entry.raw and "dpi" in entry.raw):
             ET.SubElement(cs, "dpi").set("Value", str(int(image_dpi)))
+        # Emit a cleanup SubLayer only when the card requests it.
+        # An empty <SubLayer/> (no type/index) causes LightBurn to fail
+        # parsing the entire CutSetting_Img, resulting in an empty Cuts panel.
+        cleanup = (entry.raw or {}).get("cleanupPass")
+        if cleanup == "1":
+            max_pwr2 = (entry.raw or {}).get("maxPower2", "20")
+            sl = ET.SubElement(cs, "SubLayer", {"type": "Scan", "index": "1"})
+            ET.SubElement(sl, "maxPower").set("Value", max_pwr2)
+            ET.SubElement(sl, "maxPower2").set("Value", max_pwr2)
+            ET.SubElement(sl, "speed").set("Value", "2000")
+            ET.SubElement(sl, "isCleanup").set("Value", "1")
+            ET.SubElement(sl, "subname").set("Value", "Cleanup")
 
 
-def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
+def _emit_shape(parent: ET.Element, ref: ShapeRef, *, shape_id: int = 0) -> None:
     """Emit a ``<Shape>`` element.
 
     For bitmap shapes with ``embed_data=True`` and ``source_path`` set,
@@ -214,7 +243,7 @@ def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
     is computed from physical-mm / pixel-count so the bitmap lands at
     the requested on-bed size.
     """
-    attribs = {"Type": ref.shape_type, "CutIndex": str(ref.cut_index)}
+    attribs = {"Type": ref.shape_type, "CutIndex": str(ref.cut_index), "ShapeID": str(shape_id)}
     xform = ref.xform
 
     if ref.shape_type == "Bitmap" and ref.embed_data and ref.source_path is not None:
@@ -231,16 +260,29 @@ def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
             scale = 50.0 / float(longest)
             mm_w = float(ref.physical_width_mm or px_w * scale)
             mm_h = float(ref.physical_height_mm or px_h * scale)
-        # XForm scale: pixel -> mm. Y is negated and translated up by
-        # mm_h because LightBurn's workspace is Y-up while image rows
-        # run top-to-bottom; without the flip the bitmap renders
-        # upside-down.
-        sx = mm_w / float(px_w)
-        sy = mm_h / float(px_h)
-        xform = (sx, 0.0, 0.0, -sy, 0.0, mm_h)
+        # LightBurn stores W/H as the image's NATURAL size in mm at its
+        # 120-DPI reference scale. XForm a/d factors scale from that
+        # natural size to the desired display size; (e, f) is the
+        # workspace top-left corner. d is POSITIVE (no y-flip): MOPA
+        # fiber/JCZFiber controllers use Y-downward coords so the image
+        # renders naturally without an explicit vertical flip.
+        _LBRN_NAT_DPI = 120.0
+        w_natural = float(px_w) * 25.4 / _LBRN_NAT_DPI
+        h_natural = float(px_h) * 25.4 / _LBRN_NAT_DPI
+        sx = mm_w / w_natural
+        sy = mm_h / h_natural
+        # (e, f) positions the bitmap CENTER in the workspace. Placing it at
+        # (mm_w/2, mm_h/2) lands the image at the midpoint of the print area,
+        # matching the convention used by LightBurn when it exports projects
+        # (e.g. the reference coin at 87.5, 87.5 on a 175 mm bed).
+        cx = ref.center_x_mm if ref.center_x_mm is not None else mm_w / 2.0
+        cy = ref.center_y_mm if ref.center_y_mm is not None else mm_h / 2.0
+        xform = (sx, 0.0, 0.0, sy, cx, cy)
+        if ref.mask_id is not None:
+            attribs["MaskID"] = str(ref.mask_id)
         attribs.update({
-            "W": _fmt_float(mm_w),
-            "H": _fmt_float(mm_h),
+            "W": _fmt_float(w_natural),
+            "H": _fmt_float(h_natural),
             "Gamma": "1",
             "Contrast": "0",
             "Brightness": "0",
@@ -251,6 +293,17 @@ def _emit_shape(parent: ET.Element, ref: ShapeRef) -> None:
             "SourceHash": _source_hash(png_bytes),
             "Data": base64.b64encode(png_bytes).decode("ascii"),
         })
+
+    elif ref.shape_type == "Ellipse":
+        # Reference-circle / coin clipping mask. Rx/Ry are physical radii
+        # in mm; XForm translation places the centre at (cx, cy) in the
+        # workspace. UsedByID references the Bitmap this Ellipse clips.
+        if ref.rx is not None:
+            attribs["Rx"] = _fmt_float(ref.rx)
+        if ref.ry is not None:
+            attribs["Ry"] = _fmt_float(ref.ry)
+        if ref.used_by_id is not None:
+            attribs["UsedByID"] = str(ref.used_by_id)
 
     shape = ET.SubElement(parent, "Shape", attribs)
     xf = ET.SubElement(shape, "XForm")
@@ -309,7 +362,9 @@ def _emit_project_boilerplate(
         ("Optimize_ChooseCorners", "0"),
         ("Optimize_AllowReverse", "1"),
         ("Optimize_RemoveOverlaps", "0"),
+        ("Optimize_OverlapDist", "0.025"),
         ("Optimize_OptimalEntryPoint", "0"),
+        ("Optimize_CutSelected", "0"),
     ):
         ET.SubElement(ui, tag, {"Value": val})
 
@@ -373,22 +428,32 @@ def build_lbrn_tree(
         },
     )
     _emit_project_boilerplate(root, thumbnail_b64=thumbnail_b64)
-    if notes:
-        ET.SubElement(root, "Notes", {"ShowOnLoad": "0", "Notes": notes})
     # An entry is emitted in image-mode when any shape attached to it is a
     # Bitmap (the .lbrn2's depth pass and color/photo-tonal passes). Vector
     # shapes (Path / Text / future signature) keep the Scan-style emit.
+    # Ellipse shapes signal a Tool layer (index 30 in LightBurn) — emitted
+    # as <CutSetting type="Tool"> rather than Scan or Image.
     image_indices = {s.cut_index for s in shapes if s.shape_type == "Bitmap"}
+    tool_indices = {s.cut_index for s in shapes if s.shape_type == "Ellipse"}
     for entry in sorted(entries, key=lambda e: e.index):
         _emit_cut_setting(
             root, entry,
             image_mode=entry.index in image_indices,
+            tool_mode=entry.index in tool_indices,
             image_pass_count=image_pass_count,
             image_negative=image_negative,
             image_dpi=image_dpi,
         )
-    for shape in shapes:
-        _emit_shape(root, shape)
+    for i, shape in enumerate(shapes):
+        _emit_shape(root, shape, shape_id=i)
+    # Notes must come LAST — placing it before CutSetting_Img causes LightBurn
+    # to silently drop all layers (its parser stops at the multi-line attribute).
+    # Keep content ASCII-safe: no literal newlines or multi-byte × in attributes.
+    if notes:
+        safe_notes = notes.replace("\n", " | ").replace("×", "x")
+        ET.SubElement(root, "Notes", {"ShowOnLoad": "0", "Notes": safe_notes})
+    else:
+        ET.SubElement(root, "Notes", {"ShowOnLoad": "0", "Notes": ""})
     return ET.ElementTree(root)
 
 

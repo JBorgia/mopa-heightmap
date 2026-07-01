@@ -231,9 +231,11 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
         # Regression — the writer used to default to 50 mm on the longest
         # side regardless of heightmap resolution, which forced the user
         # to manually resize every bitmap in LightBurn. The export now
-        # derives mm from the heightmap pixel count at 254 DPI (≈10 px/mm).
+        # derives W/H from the heightmap pixel count at LightBurn's 120-DPI
+        # natural-size convention (W = px × 25.4 / 120). The XForm scale
+        # factor then maps from that natural size to the desired physical mm.
         # Pin that the size scales with the heightmap (≠ the old 50 mm
-        # constant) and matches the 254-DPI rule for a known input.
+        # constant) and matches the 120-DPI rule for a known input.
         import re
         w_match = re.search(r' W="([0-9.]+)"', lbrn2_text)
         h_match = re.search(r' H="([0-9.]+)"', lbrn2_text)
@@ -242,14 +244,14 @@ def test_api_export_lbrn2_returns_zip_with_project_and_pngs(
         h_mm = float(h_match.group(1))
         # Heightmap is square in this fixture — both axes should match.
         assert abs(w_mm - h_mm) < 0.05, f"non-square output: {w_mm}×{h_mm}"
-        # 254-DPI rule: mm ≈ pixels / 10. The exact pixel count depends
-        # on how the service rendered the input; we just verify the rule.
+        # 120-DPI rule: W = px × 25.4 / 120 (LightBurn's natural-size DPI).
+        # Confirmed against reference .lbrn2 file: 1920 px → W=406.4 mm.
         hm_arr = api_blob_store.load_heightmap(heightmap_id)
         assert hm_arr is not None
-        expected_mm = hm_arr.shape[1] * 25.4 / 254.0
+        expected_mm = hm_arr.shape[1] * 25.4 / 120.0
         assert abs(w_mm - expected_mm) < 0.05, (
-            f"expected {expected_mm:.2f} mm at 254 DPI for "
-            f"{hm.shape[1]} px wide heightmap, got {w_mm}"
+            f"expected {expected_mm:.2f} mm at 120 DPI (LightBurn natural size) for "
+            f"{hm_arr.shape[1]} px wide heightmap, got {w_mm}"
         )
         # Sanity — must have changed from the old 50 mm default for any
         # heightmap that isn't ~500 px wide.
@@ -321,133 +323,169 @@ def test_api_export_lbrn2_fits_portrait_heightmap_into_profile_box_preserving_as
     text = zipfile.ZipFile(_io.BytesIO(zip_bytes)).read("project.lbrn2").decode("utf-8")
     w_match = re.search(r' W="([0-9.]+)"', text)
     h_match = re.search(r' H="([0-9.]+)"', text)
-    assert w_match and h_match
-    w_mm = float(w_match.group(1))
-    h_mm = float(h_match.group(1))
-    # Portrait heightmap (60×120) into 60×60 box → 30×60 mm. The box's
-    # height is the binding constraint because the image is taller than
-    # wide; width drops below the box maximum to preserve aspect.
-    assert abs(w_mm - 30.0) < 0.01, f"expected ~30 mm width, got {w_mm}"
-    assert abs(h_mm - 60.0) < 0.01, f"expected ~60 mm height, got {h_mm}"
-    # Aspect must equal heightmap aspect — not the box aspect.
-    assert abs((w_mm / h_mm) - (60.0 / 120.0)) < 1e-3
+    xform_match = re.search(r'<XForm>([^<]+)</XForm>', text)
+    assert w_match and h_match and xform_match
+    w_natural = float(w_match.group(1))
+    h_natural = float(h_match.group(1))
+    xform_vals = [float(v) for v in xform_match.group(1).split()]
+    # W/H are the image's natural 120-DPI size; XForm a/d scale them to
+    # physical mm. Physical display = W_natural × XForm_a.
+    phys_w = w_natural * xform_vals[0]
+    phys_h = h_natural * xform_vals[3]
+    # Portrait heightmap (60×120) is padded to a square (120×120) before
+    # embedding, so the physical output is sq_mm × sq_mm = 60×60 mm.
+    assert abs(phys_w - 60.0) < 0.1, f"expected 60 mm physical width (square padded), got {phys_w}"
+    assert abs(phys_h - 60.0) < 0.1, f"expected 60 mm physical height (square padded), got {phys_h}"
+    # Image must be centred on the 175×175 mm bed (87.5, 87.5).
+    assert abs(xform_vals[4] - 87.5) < 0.1, f"expected cx=87.5, got {xform_vals[4]}"
+    assert abs(xform_vals[5] - 87.5) < 0.1, f"expected cy=87.5, got {xform_vals[5]}"
 
 
-def test_api_export_lbrn2_with_subject_mask_adds_non_engraving_layer(
+def test_api_export_lbrn2_subject_mask_baked_into_depth_png(
     tmp_path: Path, service, settings_with_heightmap, synthetic_image,
 ):
-    """Subject mask should arrive in the .lbrn2 as a SECOND Bitmap on a
-    new CutSetting with output=0, so the user can toggle it in LightBurn
-    without it firing on Start."""
+    """Subject mask must be baked into per-pass depth PNGs at export time.
+
+    Background pixels (mask=0) must become white (≈255) in the embedded PNG
+    so the laser cannot fire there. LightBurn has no mechanism to clip via a
+    raster PNG layer — only vector shapes (Ellipse MaskID) can do that, so
+    the old output=0 M-layer approach provided zero laser guarantee.
+
+    Verification: use a half-subject mask (top rows=255/subject, bottom=0/bg)
+    on a uniform 0.5 heightmap. After export the depth PNG must have the
+    background rows at ~255 (raised to surface) and subject rows below ~230
+    (original depth ≈0.5 preserved)."""
+    import base64 as _b64
+    import io as _io
+    import re
+    import zipfile
     from apps.api.service_adapter import do_export_lbrn2, store_plan
     from apps.api import blob_store as api_blob_store
     from mopa.stages import plan_passes
-    import io as _io
-    import re
-    from PIL import Image
+    from mopa.lightburn_cards import DEFAULT_CARDS_DIR, DEFAULT_PROFILE_NAME, load_lightburn_card
 
-    request = ExportRequest(
-        output_dir=tmp_path, base_stem="api_mask", write_preview=False,
-    )
-    bundle = service.export(synthetic_image, settings_with_heightmap, request)
-    hm = np.asarray(Image.open(bundle.master16_png), dtype=np.float32) / 65535.0
+    H, W = 64, 64
+    hm = np.full((H, W), 0.5, dtype=np.float32)
     heightmap_id = api_blob_store.store_heightmap(hm)
+
+    # Top half = subject (255), bottom half = background (0).
+    mask_arr = np.zeros((H, W), dtype=np.uint8)
+    mask_arr[:H // 2, :] = 255
+    mbuf = _io.BytesIO()
+    Image.fromarray(mask_arr, mode="L").save(mbuf, format="PNG")
+    mask_id = api_blob_store.store_bytes(mbuf.getvalue(), content_type="image/png")
 
     material = load_lightburn_card(DEFAULT_CARDS_DIR / f"{DEFAULT_PROFILE_NAME}.lbrn2")
     plan = plan_passes(heightmap=hm, profile=material)
     plan_id = store_plan(plan)
 
-    # Synthesise a 1×1 mask blob — the contents don't matter, just that
-    # the export inlines it as a layer.
+    # Non-coin profile (no profile_name → no shape:circle) → baking path.
+    zip_bytes = do_export_lbrn2(plan_id=plan_id, heightmap_id=heightmap_id,
+                                subject_mask_id=mask_id)
+    with zipfile.ZipFile(_io.BytesIO(zip_bytes)) as zf:
+        lbrn2 = zf.read("project.lbrn2").decode("utf-8")
+
+    # No M-layer: exactly one Bitmap shape per depth pass.
+    n_passes = len(plan.passes)
+    n_bitmaps = lbrn2.count('<Shape Type="Bitmap"')
+    assert n_bitmaps == n_passes, (
+        f"expected {n_passes} Bitmap shape(s), no M-layer; got {n_bitmaps}"
+    )
+    # No output=0 CutSetting anywhere.
+    assert 'output Value="0"' not in lbrn2, "M-layer output=0 must not appear"
+
+    # Decode the embedded PNG and verify baking.
+    data_match = re.search(r'Data="([^"]+)"', lbrn2)
+    assert data_match, "no embedded Data= in Bitmap shape"
+    depth_img = Image.open(_io.BytesIO(_b64.b64decode(data_match.group(1)))).convert("L")
+    depth_arr = np.asarray(depth_img, dtype=np.float32) / 255.0
+    # The PNG is flipud before saving, so row 0 in the file = original bottom row.
+    # Original bottom half = background (mask=0) → should be ~1.0 (white = no engrave).
+    bg_rows = depth_arr[:H // 2, :]
+    assert bg_rows.mean() > 0.95, (
+        f"background rows should be ≈1.0 (no engraving); got mean={bg_rows.mean():.3f}"
+    )
+    # Original top half = subject (mask=1) → depth ≈0.5 preserved (< 0.9 after 8-bit quant).
+    subject_rows = depth_arr[H // 2:, :]
+    assert subject_rows.mean() < 0.9, (
+        f"subject rows should preserve original ~0.5 depth; got mean={subject_rows.mean():.3f}"
+    )
+
+
+def test_api_export_lbrn2_coin_profile_uses_ellipse_not_baking():
+    """Coin profiles (shape: circle) must use Ellipse MaskID for clipping,
+    not pixel-baking. An all-black mask supplied to a coin export must NOT
+    force the depth PNG to white — the Ellipse handles the boundary."""
+    import base64 as _b64
+    import io as _io
+    import re
+    import tempfile
+    import yaml as _yaml
+    import zipfile
+    import os as _os
+    from apps.api.service_adapter import do_export_lbrn2, store_plan
+    from apps.api import blob_store as api_blob_store
+    from mopa.stages import plan_passes
+    from mopa.lightburn_cards import DEFAULT_CARDS_DIR, DEFAULT_PROFILE_NAME, load_lightburn_card
+    from mopa import profiles as _profiles
+
+    H, W = 64, 64
+    hm = np.full((H, W), 0.5, dtype=np.float32)
+    heightmap_id = api_blob_store.store_heightmap(hm)
+
+    # All-black mask: if baking were applied, entire depth PNG would become white.
     mbuf = _io.BytesIO()
-    Image.new("L", (4, 4), color=255).save(mbuf, format="PNG")
+    Image.new("L", (W, H), color=0).save(mbuf, format="PNG")
     mask_id = api_blob_store.store_bytes(mbuf.getvalue(), content_type="image/png")
 
-    zip_bytes = do_export_lbrn2(
-        plan_id=plan_id, heightmap_id=heightmap_id, subject_mask_id=mask_id,
+    material = load_lightburn_card(DEFAULT_CARDS_DIR / f"{DEFAULT_PROFILE_NAME}.lbrn2")
+    plan = plan_passes(heightmap=hm, profile=material)
+    plan_id = store_plan(plan)
+
+    # Synthesise a circle profile in a temp dir.
+    tmp_dir = Path(tempfile.mkdtemp(prefix="mopa_coin_test_"))
+    (tmp_dir / "test_coin.yaml").write_text(
+        _yaml.safe_dump({
+            "name": "test_coin",
+            "machine": "60W MOPA fiber",
+            "lightburn_mode": "3D Sliced",
+            "black_is_deep": True,
+            "print_width_mm": 40.0,
+            "print_height_mm": 40.0,
+            "shape": "circle",
+        }),
+        encoding="utf-8",
     )
+    saved = _os.environ.get(_profiles.USER_PROFILES_ENV)
+    _os.environ[_profiles.USER_PROFILES_ENV] = str(tmp_dir)
+    try:
+        zip_bytes = do_export_lbrn2(
+            plan_id=plan_id,
+            heightmap_id=heightmap_id,
+            profile_name="test_coin",
+            subject_mask_id=mask_id,
+        )
+    finally:
+        if saved is None:
+            _os.environ.pop(_profiles.USER_PROFILES_ENV, None)
+        else:
+            _os.environ[_profiles.USER_PROFILES_ENV] = saved
+
     with zipfile.ZipFile(_io.BytesIO(zip_bytes)) as zf:
-        names = set(zf.namelist())
-        # The mask is embedded as base64 inside project.lbrn2 (verified
-        # below), so the inner .lbrn2 zip MUST NOT also write it as a
-        # standalone file — that would ship the same bytes twice in
-        # /export/bundle (the bundle endpoint adds the standalone copy
-        # separately from blob_store).
-        assert "subject_mask.png" not in names, (
-            f"mask should be embedded only, not duplicated as a file; saw {names}"
-        )
-        text = zf.read("project.lbrn2").decode("utf-8")
-        # Two Bitmap shapes: one depth pass + one mask.
-        assert text.count('<Shape Type="Bitmap"') == 2
-        # The mask CutSetting must have output=0 so LightBurn won't fire it
-        # on Start. Find it by scanning for the CutSetting_Img blocks.
-        cut_settings = re.findall(
-            r'<CutSetting_Img[^>]*>.*?</CutSetting_Img>', text, flags=re.DOTALL,
-        )
-        # At least one CutSetting must have output Value="0" — the mask one.
-        outputs = [
-            re.search(r'<output Value="(\d)"', cs)
-            for cs in cut_settings
-        ]
-        non_engraving = [m.group(1) for m in outputs if m and m.group(1) == "0"]
-        assert non_engraving, (
-            "expected a CutSetting with output=0 (the non-engraving mask "
-            "layer); none found"
-        )
-        # The mask layer should also be named so users can spot it in the
-        # LightBurn layer list.
-        assert "subject_mask" in text or "M99" in text or "M100" in text
+        lbrn2 = zf.read("project.lbrn2").decode("utf-8")
 
-        # Regression — LightBurn 1.7 crashes when a CutSetting_Img block
-        # is missing required fields (bidir, priority, tabCount,
-        # tabCountMax) or has invalid values (numPasses=0, non-standard
-        # subname). The mask layer's CutSetting is built by cloning the
-        # depth pass's structure, so both must carry the same field set.
-        def _tags(block: str) -> set[str]:
-            return set(re.findall(r"<(\w+) Value=\"[^\"]*\"/>", block))
+    # Ellipse present (coin clipping active).
+    assert '<Shape Type="Ellipse"' in lbrn2, "coin export must have Ellipse"
+    assert 'MaskID=' in lbrn2, "Bitmap must reference Ellipse via MaskID"
 
-        depth_block = next(cs for cs in cut_settings if 'name Value="C01"' in cs)
-        mask_block = next(cs for cs in cut_settings if 'name Value="M' in cs)
-        depth_tags = _tags(depth_block)
-        mask_tags = _tags(mask_block)
-        # Mask must have every field the depth cut has (plus possibly extras
-        # like ``output`` which the depth doesn't bother setting).
-        missing = depth_tags - mask_tags
-        assert not missing, (
-            f"mask CutSetting missing fields {missing} that LightBurn requires; "
-            f"depth has {depth_tags}, mask has {mask_tags}"
-        )
-        # numPasses must be > 0 — LightBurn rejects 0-pass layers.
-        np_match = re.search(r'<numPasses Value="(\d+)"', mask_block)
-        assert np_match and int(np_match.group(1)) >= 1, (
-            f"mask numPasses must be ≥ 1 (LightBurn crashes on 0); got {mask_block}"
-        )
-        # subname must be a known LightBurn value, not a custom string.
-        subname_match = re.search(r'<subname Value="([^"]+)"', mask_block)
-        assert subname_match and subname_match.group(1) in {
-            "3D Slice", "Image", "Fill", "Line",
-        }, f"unknown subname {subname_match!r}; LightBurn only knows the standard set"
-
-        # XForm scales must match the depth pass — the mask is resized to
-        # the heightmap pixel dims so both shapes share an identical scale
-        # factor. Without this the mask renders stretched in LightBurn
-        # because the writer computes per-shape scale from each PNG's own
-        # pixel count and the source-photo mask has a different aspect
-        # than the sculptok heightmap.
-        depth_shape = re.search(
-            r'<Shape Type="Bitmap" CutIndex="\d+"[^>]*>\s*<XForm>([^<]+)</XForm>',
-            text,
-        )
-        all_shapes = re.findall(
-            r'<Shape Type="Bitmap" CutIndex="(\d+)"[^>]*>\s*<XForm>([^<]+)</XForm>',
-            text,
-        )
-        assert len(all_shapes) == 2
-        # Parse the six XForm values; sx and -sy must be equal across shapes.
-        scales = [tuple(float(v) for v in xform.split()) for _, xform in all_shapes]
-        assert abs(scales[0][0] - scales[1][0]) < 1e-6, (
-            f"XForm sx mismatch: {scales} — mask not resized to heightmap dims"
-        )
-        assert abs(scales[0][3] - scales[1][3]) < 1e-6, (
-            f"XForm sy mismatch: {scales} — mask not resized to heightmap dims"
-        )
+    # Depth PNG must NOT be forced to white — baking was skipped.
+    data_match = re.search(r'Data="([^"]+)"', lbrn2)
+    assert data_match
+    depth_img = Image.open(_io.BytesIO(_b64.b64decode(data_match.group(1)))).convert("L")
+    depth_arr = np.asarray(depth_img, dtype=np.float32) / 255.0
+    # Original hm is 0.5 everywhere — if baking had run with all-black mask
+    # every pixel would be 1.0. The coin path must preserve the ~0.5 depth.
+    assert depth_arr.mean() < 0.9, (
+        f"coin export must not bake the all-black mask into depth PNG; "
+        f"mean={depth_arr.mean():.3f} (expected ~0.5)"
+    )

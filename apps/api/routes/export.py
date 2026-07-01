@@ -153,6 +153,7 @@ async def export_lbrn2(req: ExportLbrn2Request) -> Response:
             plan_id=req.plan_id,
             heightmap_id=req.heightmap_id,
             profile_name=req.profile_name,
+            subject_mask_id=req.subject_mask_id,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -226,11 +227,10 @@ async def export_bundle(req: ExportBundleRequest) -> Response:
                     plan_id=req.plan_id,  # type: ignore[arg-type]  # validated above
                     heightmap_id=req.heightmap_id,
                     profile_name=req.profile_name,
-                    # Forward the mask so it lands as a non-engraving
-                    # toggleable layer in the .lbrn2 itself, not just a
-                    # standalone PNG in the zip. Users get both — the
-                    # layer for in-LightBurn workflows, the PNG for
-                    # external tooling.
+                    # Bake the mask into the depth heightmap before per-pass
+                    # PNGs are computed. Background pixels become 1.0 (no
+                    # engraving). The standalone subject_mask.png below is for
+                    # LightBurn's Trace Image workflow only.
                     subject_mask_id=req.subject_mask_id,
                 )
             except KeyError as exc:
@@ -257,9 +257,11 @@ async def export_bundle(req: ExportBundleRequest) -> Response:
                 skipped.append("stl")
 
         # ----------------- always-on reference artifacts ------------------
-        # Subject mask — when the user computed one (via /mask, /render, or
-        # /sculptok/generate) they almost certainly want it shipped to
-        # LightBurn. The mask drives engrave/no-engrave at run time.
+        # Subject mask PNG — shipped for LightBurn's Trace Image workflow.
+        # The mask boundary is already baked into the depth layer PNGs
+        # (background raised to 1.0 = no engraving). This file lets the user
+        # vectorize the boundary in LightBurn and attach it as a MaskID for
+        # an editable geometric clip if they want one.
         if req.subject_mask_id:
             mask_bytes = blob_store.load_bytes(req.subject_mask_id)
             if mask_bytes is not None:
