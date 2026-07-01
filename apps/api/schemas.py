@@ -188,6 +188,10 @@ class ExportLbrn2Request(BaseModel):
     plan_id: str
     heightmap_id: str
     profile_name: Optional[str] = None
+    # When provided, baked into the depth heightmap before per-pass PNGs are
+    # computed (background pixels raised to 1.0 = no engraving). Not emitted
+    # as a .lbrn2 layer — LightBurn can only clip via vector shapes, not raster.
+    subject_mask_id: Optional[str] = None
 
 
 class ExportStlRequest(BaseModel):
@@ -232,6 +236,8 @@ class ProfileSummary(BaseModel):
     name: str
     machine: Optional[str] = None
     lightburn_mode: Optional[str] = None
+    requires_spray: Optional[bool] = None
+    spray_notes: Optional[str] = None
 
 
 class ProfileDetail(BaseModel):

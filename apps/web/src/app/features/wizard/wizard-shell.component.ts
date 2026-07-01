@@ -283,10 +283,17 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         adds an include (positive) or exclude (negative) seed at a fixed
                         normalised position on the source image:
                       </p>
+                      @if (pipeline().mask.backend !== 'threshold') {
+                        <p class="muted small disabled-hint">
+                          Click-refine uses flood-fill and requires the <strong>Threshold</strong> backend.
+                          Switch backends above to enable these shortcuts.
+                        </p>
+                      }
                       <div class="control-actions">
                         <button
                           type="button"
                           class="secondary"
+                          [disabled]="maskService.inFlight() || pipeline().mask.backend !== 'threshold'"
                           (click)="clickRefineAt(0.5, 0.5, 'positive')"
                         >
                           Include centre
@@ -294,6 +301,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         <button
                           type="button"
                           class="secondary"
+                          [disabled]="maskService.inFlight() || pipeline().mask.backend !== 'threshold'"
                           (click)="clickRefineAt(0.05, 0.05, 'negative')"
                         >
                           Exclude top-left
@@ -301,6 +309,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         <button
                           type="button"
                           class="secondary"
+                          [disabled]="maskService.inFlight() || pipeline().mask.backend !== 'threshold'"
                           (click)="clickRefineAt(0.95, 0.95, 'negative')"
                         >
                           Exclude bottom-right
@@ -442,7 +451,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         @if (pipeline().settings.background_pattern !== 'none' && !pipeline().settings.subject_mask_enabled) {
                           <p class="muted small disabled-hint">
                             Background replace needs a subject mask — enabling it
-                            automatically when you click <strong>Generate via Sculptok</strong>.
+                            automatically when you select a pattern or click <strong>Generate via Sculptok</strong>.
                           </p>
                         }
                       </div>
@@ -561,6 +570,12 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         <option [value]="profile.name" [selected]="profile.name === pipeline().render.profileName">{{ profile.name }}</option>
                       }
                     </select>
+                    @if (selectedProfile()?.requires_spray) {
+                      <div class="spray-warning">
+                        <strong>Reflectivity warning</strong>
+                        {{ selectedProfile()!.spray_notes }}
+                      </div>
+                    }
                   </div>
                   <div class="control-actions">
                     <button
@@ -1530,6 +1545,22 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     .toast-success { border-color: #27ae60; background: color-mix(in srgb, #27ae60 12%, var(--bg-surface)); }
     .toast-info    { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface)); }
 
+    .spray-warning {
+      margin-top: 0.5rem;
+      padding: 0.6rem 0.75rem;
+      border-radius: 0.5rem;
+      border: 1px solid #e67e22;
+      background: color-mix(in srgb, #e67e22 12%, var(--bg-surface));
+      font-size: 0.8rem;
+      line-height: 1.4;
+      color: var(--text-primary);
+    }
+    .spray-warning strong {
+      display: block;
+      margin-bottom: 0.2rem;
+      color: #e67e22;
+    }
+
     .toast-body {
       flex: 1;
       display: grid;
@@ -1904,6 +1935,12 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       .wizard-content-grid {
         grid-template-columns: 1fr;
       }
+
+      /* At narrow widths the right pane is already hidden by the single-column
+         grid — the toggle button is meaningless and misleads the user. */
+      .wizard-header button.secondary {
+        display: none;
+      }
     }
   `,
 })
@@ -1960,12 +1997,17 @@ export class WizardShellComponent {
   ];
 
   /**
-   * True when the authenticated user has no credits left.
-   * When not authenticated, we rely on server-side enforcement instead.
+   * True when the user has no credits left. Prefers the live Sculptok balance
+   * (updated after every generation) over the auth session snapshot, which is
+   * only refreshed on login and drifts after credits are consumed.
    */
-  protected readonly creditsExhausted = computed(
-    () => this.authService.isAuthenticated() && this.authService.creditsRemaining() <= 0,
-  );
+  protected readonly creditsExhausted = computed(() => {
+    const sculptokCredits = this.sculptokService.credits();
+    if (sculptokCredits?.configured && sculptokCredits.balance !== null && sculptokCredits.balance !== undefined) {
+      return sculptokCredits.balance <= 0;
+    }
+    return this.authService.isAuthenticated() && this.authService.creditsRemaining() <= 0;
+  });
 
   /**
    * True when the current render inputs (imageId + profile + settings) match
@@ -2010,11 +2052,21 @@ export class WizardShellComponent {
   private readonly lastAutoPlanKey = signal<string | null>(null);
 
   /**
-   * User selection for the Submit-the-bundle action on step 5. All three
-   * default true; when a prerequisite isn't met the checkbox is disabled
-   * and its effective value drops out of the bundle request.
+   * Tracks the heightmap path for which an auto-render was last dispatched.
+   * Keyed to the path so settings tweaks (CLAHE toggle etc.) don't cause
+   * spurious re-renders — only a genuinely new upload/generate triggers one.
    */
-  protected readonly exportSelections = signal({ png: true, lbrn2: true, stl: true });
+  private readonly _lastAutoRenderPath = signal<string | null>(null);
+
+  /**
+   * User selection for the Submit-the-bundle action on step 5. Persisted in
+   * StudioState.ui so selections survive navigation and page reloads.
+   */
+  protected readonly exportSelections = computed(() => ({
+    png: this.ui().exportPngEnabled,
+    lbrn2: this.ui().exportLbrn2Enabled,
+    stl: this.ui().exportStlEnabled,
+  }));
 
   /**
    * Wall-clock signal that ticks once per second so ``relativeTime`` is
@@ -2030,6 +2082,13 @@ export class WizardShellComponent {
    * template so the disabled-hint can distinguish "compute is queued" from
    * "compute already ran and didn't produce a plan — retry manually".
    */
+  /** The full ProfileSummary for the currently-selected profile, or null. */
+  protected readonly selectedProfile = computed(() =>
+    this.sessionService.profiles().find(
+      p => p.name === this.pipeline().render.profileName,
+    ) ?? null,
+  );
+
   protected readonly autoPlanAttempted = computed(() => {
     const session = this.session();
     const heightmapId = this.output().heightmapId;
@@ -2073,25 +2132,53 @@ export class WizardShellComponent {
     // of which page the user is on. If they skip page 4 and jump straight
     // to Review, the plan still computes in the background so .lbrn2 export
     // is ready when they get there.
+    // Key is recorded BEFORE the request so rapid profile changes don't
+    // queue redundant computes while one is already in flight for the new key.
     effect(() => {
       const session = this.session();
       const heightmapId = this.output().heightmapId;
       const profileName = this.pipeline().render.profileName;
       if (!session.imageId || !heightmapId || !profileName) return;
       const key = `${session.imageId}|${heightmapId}|${profileName}`;
-      if (this.lastAutoPlanKey() === key) return;
-      if (this.output().plan) return; // existing plan is already current; render/profile changes clear it
+      // Exit only when we've already computed for this exact key AND a plan exists.
+      // If the plan was cleared (e.g. by a concurrent auto-render), we must re-compute
+      // even though lastAutoPlanKey already matches.
+      if (this.lastAutoPlanKey() === key && this.output().plan) return;
       if (this.planService.inFlight()) return;
       this.lastAutoPlanKey.set(key);
       this.planService.computePlan();
     });
 
+    // Auto-render when a new heightmap path is set (either from the manual
+    // upload input or from Sculptok generate). This makes the preview appear
+    // automatically without requiring a separate "Render preview" click.
+    // Gated on the path value so changing other settings (CLAHE, denoise…)
+    // does NOT re-trigger a render — only a genuinely new path does.
+    // renderFresh() acts as the idempotence guard: if the chainStage effect
+    // (hero CTA) already kicked off a render for this key, we skip.
+    effect(() => {
+      const path = this.pipeline().settings.external_heightmap_path;
+      const imageId = this.session().imageId;
+      if (!path || !imageId) return;
+      if (this._lastAutoRenderPath() === path) return;
+      if (this.renderService.inFlight()) return;
+      if (this.renderFresh()) return;
+      untracked(() => {
+        this._lastAutoRenderPath.set(path);
+        this.renderService.render();
+      });
+    });
+
     // Auto-advance: when the current step's artifact is produced, move to the
     // next step automatically. Uses _autoAdvanced so manually going back to a
     // completed step doesn't hijack the user forward again.
+    // Page 3 (Material & Passes) is excluded: the plan may auto-compute in
+    // the background before the user has had a chance to review or change
+    // their material profile. They must click Next explicitly.
     effect(() => {
       const page = this.ui().wizardPage;
       if (page >= this.wizardPageLabels.length - 1) return;
+      if (page === 3) return;
       if (this.pageStatus(page) !== 'complete') return;
       untracked(() => {
         if (this._autoAdvanced().has(page)) return;
@@ -2382,7 +2469,7 @@ export class WizardShellComponent {
 
   protected toggleExport(format: 'png' | 'lbrn2' | 'stl', event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
-    this.exportSelections.update((s) => ({ ...s, [format]: checked }));
+    this.sessionTree.setExportSelection(format, checked);
   }
 
   protected canSubmitBundle(): boolean {

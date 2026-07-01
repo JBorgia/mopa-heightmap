@@ -11,6 +11,20 @@ black_is_deep: true
 # expense, larger jobs override per-export.
 print_width_mm: 60.0
 print_height_mm: 60.0
+# Coin/medallion profiles clip the engraving to a circle in LightBurn
+# using a Tool-layer Ellipse (MaskID). Set shape to rectangle for plaques.
+shape: circle
+
+# --- Reflectivity warning -----------------------------------------------
+# Brass is 65–70% reflective at 1064 nm. Mirror-finish or lacquered stock
+# can climb well above this — apply anti-reflection spray to be safe.
+requires_spray: true
+spray_notes: >-
+  Brass reflectivity at 1064 nm is 65–70 %, rising above 90 % on
+  mirror-polished or lacquered blanks. Apply a thin, even coat of
+  anti-reflection marking spray (xTool Metal Spray, LaserBond 100, or
+  similar) on any high-polish surface before firing. Spray washes off
+  with plain water. Use half-hard (H02) temper sheet to resist warping.
 
 heightmap:
   near_percentile: 5

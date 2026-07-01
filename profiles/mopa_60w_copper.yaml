@@ -9,6 +9,19 @@ black_is_deep: true
 # most engravers buy (decorative panels, small signage).
 print_width_mm: 80.0
 print_height_mm: 80.0
+shape: rectangle
+
+# --- Reflectivity warning -----------------------------------------------
+# Copper is ~96% reflective at 1064 nm — nearly as dangerous as silver.
+# Always apply anti-reflection spray before firing.
+requires_spray: true
+spray_notes: >-
+  Copper is ~96 % reflective at 1064 nm. Reflected energy can damage
+  the galvo head or F-theta lens. Apply a thin, even coat of
+  anti-reflection marking spray (xTool Metal Spray, LaserBond 100, or
+  similar) before firing. Spray washes off with plain water.
+  Use electrolytic-tough-pitch (ETP) or oxygen-free (OFE) copper sheet
+  for consistent ablation — recycled/architectural copper alloys vary.
 
 heightmap:
   near_percentile: 5

@@ -1,0 +1,54 @@
+name: mopa_60w_sterling_silver
+machine: "60W MOPA fiber"
+lightburn_mode: "3D Sliced"
+black_is_deep: true
+
+# Default print BOUNDING BOX — 50 × 50 mm suits a coin, small medal,
+# or signet ring blank. Override per-export for pendants or larger stock.
+print_width_mm: 50.0
+print_height_mm: 50.0
+shape: circle
+
+# --- Reflectivity warning -----------------------------------------------
+# Sterling silver (.925) is ~97% reflective at 1064 nm. You MUST apply
+# an anti-reflection marking spray before firing. Skipping the spray
+# can reflect enough energy back up the beam path to damage the galvo
+# head or F-theta lens.
+requires_spray: true
+spray_notes: >-
+  Sterling silver (.925) is ~97% reflective at 1064 nm. Apply a thin,
+  even coat of anti-reflection marking spray (xTool Metal Spray, LaserBond
+  100, or similar) before firing. Spray washes off with plain water.
+  Use half-hard temper blanks — they resist warping under rapid thermal
+  cycling better than dead-soft stock.
+
+heightmap:
+  near_percentile: 5
+  far_percentile: 95
+  gamma: 0.72
+  contrast: 1.0
+  midtone_boost: 0.08
+  deep_limit: 0.04
+  surface_limit: 0.96
+  smooth: bilateral
+  smooth_diameter: 9
+  smooth_strength: 0.08
+  sharpen: 0.2
+  sharpen_sigma: 2.0
+  flatten_background: true
+  background_threshold: 0.88
+  background_value: 1.0
+
+lightburn_starting_point:
+  lens: "150mm"
+  # Silver is a better heat sink than brass — run slightly slower and
+  # with higher pulse energy (lower frequency, wider pulse) to break
+  # the surface cleanly without smearing.
+  speed_mm_s: 950
+  power_percent: 95
+  frequency_khz: 48       # low frequency = high peak power per pulse
+  pulse_width_ns: 250     # 200–350 ns for deep material removal on silver
+  line_interval_mm: 0.025
+  passes: 256
+  angle_increment: 45
+  cleanup_every_passes: 20

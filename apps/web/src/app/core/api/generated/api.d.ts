@@ -803,6 +803,10 @@ export interface components {
             machine?: string | null;
             /** Lightburn Mode */
             lightburn_mode?: string | null;
+            /** Requires Spray */
+            requires_spray?: boolean | null;
+            /** Spray Notes */
+            spray_notes?: string | null;
         };
         /** RenderRequest */
         RenderRequest: {
