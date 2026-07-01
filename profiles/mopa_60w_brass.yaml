@@ -21,10 +21,23 @@ shape: circle
 requires_spray: true
 spray_notes: >-
   Brass reflectivity at 1064 nm is 65–70 %, rising above 90 % on
-  mirror-polished or lacquered blanks. Apply a thin, even coat of
-  anti-reflection marking spray (xTool Metal Spray, LaserBond 100, or
-  similar) on any high-polish surface before firing. Spray washes off
-  with plain water. Use half-hard (H02) temper sheet to resist warping.
+  mirror-polished or lacquered blanks. Apply a thin coat of anti-
+  reflection marking spray (xTool Metal Spray, LaserBond 100, or similar)
+  BEFORE the breakthrough pass on high-polish stock. The spray breaks the
+  mirror skin; subsequent depth layers are safer due to micro-roughening.
+  Spray washes off with plain water. Use half-hard (H02) temper sheet.
+
+hardware_setup_notes: >-
+  Bed tilt 1.5°–2° is recommended for mirror-polished brass during deep
+  3D engraving. Standard brushed or satin-finish brass is lower risk,
+  but the tilt is a zero-cost precaution on any stock with a mirror finish.
+
+breakthrough_pass:
+  speed_mm_s: 500
+  power_percent: 35
+  frequency_khz: 45
+  pulse_width_ns: 200
+  line_interval_mm: 0.015
 
 heightmap:
   near_percentile: 5
@@ -49,7 +62,7 @@ lightburn_starting_point:
   power_percent: 92
   frequency_khz: 100
   pulse_width_ns: 200
-  line_interval_mm: 0.025
+  line_interval_mm: 0.015
   passes: 256
   angle_increment: 45
   cleanup_every_passes: 20

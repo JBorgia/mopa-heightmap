@@ -17,12 +17,25 @@ shape: rectangle
 # much lower. Spray mirror-finish blanks before firing.
 requires_spray: true
 spray_notes: >-
-  Polished aluminium is 88–92 % reflective at 1064 nm. Anodised or
-  brushed surfaces are safer, but if you are using bare, mirror-finish
-  sheet, apply a thin coat of anti-reflection marking spray (xTool Metal
-  Spray, LaserBond 100, or similar) before firing. Spray washes off with
-  plain water. Hard-anodised (Type III) aluminium needs no spray and
-  engraves cleanly without it.
+  Polished aluminium is 88–92 % reflective at 1064 nm. Apply a thin coat
+  of anti-reflection marking spray (xTool Metal Spray, LaserBond 100, or
+  similar) BEFORE the breakthrough pass on bare mirror-finish sheet.
+  Anodised or brushed surfaces are lower risk; hard-anodised (Type III)
+  needs no spray at all. Spray washes off with plain water.
+
+hardware_setup_notes: >-
+  Bed tilt 1.5°–2° is recommended for deep 3D engraving on polished
+  aluminium. Mirror-finish blanks can produce focused back-reflections
+  during deep sculpt phases. Prop up one edge of the engraving vice to
+  deflect specular returns into the lens shroud. Anodised or brushed
+  aluminium is lower risk but the tilt adds no downside.
+
+breakthrough_pass:
+  speed_mm_s: 500
+  power_percent: 35
+  frequency_khz: 40
+  pulse_width_ns: 180
+  line_interval_mm: 0.02
 
 heightmap:
   near_percentile: 6
@@ -47,7 +60,7 @@ lightburn_starting_point:
   power_percent: 88
   frequency_khz: 80
   pulse_width_ns: 180
-  line_interval_mm: 0.03
+  line_interval_mm: 0.02
   passes: 220
   angle_increment: 45
   cleanup_every_passes: 18

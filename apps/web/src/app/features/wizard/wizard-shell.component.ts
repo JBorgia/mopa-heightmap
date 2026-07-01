@@ -576,6 +576,21 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         {{ selectedProfile()!.spray_notes }}
                       </div>
                     }
+                    @if (selectedProfile()?.hardware_setup_notes) {
+                      <div class="hardware-warning">
+                        <strong>Hardware setup required</strong>
+                        {{ selectedProfile()!.hardware_setup_notes }}
+                      </div>
+                    }
+                    @if (selectedProfile()?.has_breakthrough_pass) {
+                      <div class="breakthrough-info">
+                        <strong>Breakthrough pass included</strong>
+                        Your export bundle will contain a separate
+                        <code>breakthrough.lbrn2</code>. Open and run it
+                        first with spray applied, then open
+                        <code>project.lbrn2</code> for the full 3D engraving.
+                      </div>
+                    }
                   </div>
                   <div class="control-actions">
                     <button
@@ -1545,20 +1560,38 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     .toast-success { border-color: #27ae60; background: color-mix(in srgb, #27ae60 12%, var(--bg-surface)); }
     .toast-info    { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface)); }
 
-    .spray-warning {
+    .spray-warning,
+    .hardware-warning,
+    .breakthrough-info {
       margin-top: 0.5rem;
       padding: 0.6rem 0.75rem;
       border-radius: 0.5rem;
-      border: 1px solid #e67e22;
-      background: color-mix(in srgb, #e67e22 12%, var(--bg-surface));
+      border-width: 1px;
+      border-style: solid;
       font-size: 0.8rem;
       line-height: 1.4;
       color: var(--text-primary);
     }
-    .spray-warning strong {
+    .spray-warning {
+      border-color: #e67e22;
+      background: color-mix(in srgb, #e67e22 12%, var(--bg-surface));
+    }
+    .spray-warning strong { color: #e67e22; }
+    .hardware-warning {
+      border-color: #e74c3c;
+      background: color-mix(in srgb, #e74c3c 12%, var(--bg-surface));
+    }
+    .hardware-warning strong { color: #e74c3c; }
+    .breakthrough-info {
+      border-color: #3498db;
+      background: color-mix(in srgb, #3498db 12%, var(--bg-surface));
+    }
+    .breakthrough-info strong { color: #3498db; }
+    .spray-warning strong,
+    .hardware-warning strong,
+    .breakthrough-info strong {
       display: block;
       margin-bottom: 0.2rem;
-      color: #e67e22;
     }
 
     .toast-body {

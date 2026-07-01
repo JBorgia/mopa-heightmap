@@ -31,6 +31,8 @@ async def list_profile_names_route() -> List[ProfileSummary]:
                 lightburn_mode=data.get("lightburn_mode"),
                 requires_spray=data.get("requires_spray"),
                 spray_notes=data.get("spray_notes"),
+                hardware_setup_notes=data.get("hardware_setup_notes"),
+                has_breakthrough_pass=bool(data.get("breakthrough_pass")) or None,
             ))
         except Exception:
             result.append(ProfileSummary(name=name))

@@ -238,6 +238,8 @@ class ProfileSummary(BaseModel):
     lightburn_mode: Optional[str] = None
     requires_spray: Optional[bool] = None
     spray_notes: Optional[str] = None
+    hardware_setup_notes: Optional[str] = None
+    has_breakthrough_pass: Optional[bool] = None
 
 
 class ProfileDetail(BaseModel):

@@ -807,6 +807,10 @@ export interface components {
             requires_spray?: boolean | null;
             /** Spray Notes */
             spray_notes?: string | null;
+            /** Hardware Setup Notes */
+            hardware_setup_notes?: string | null;
+            /** Has Breakthrough Pass */
+            has_breakthrough_pass?: boolean | null;
         };
         /** RenderRequest */
         RenderRequest: {

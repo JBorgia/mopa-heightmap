@@ -3,24 +3,36 @@ machine: "60W MOPA fiber"
 lightburn_mode: "3D Sliced"
 black_is_deep: true
 
-# Default print BOUNDING BOX — 50 × 50 mm suits a coin, small medal,
-# or signet ring blank. Override per-export for pendants or larger stock.
 print_width_mm: 50.0
 print_height_mm: 50.0
 shape: circle
 
 # --- Reflectivity warning -----------------------------------------------
-# Sterling silver (.925) is ~97% reflective at 1064 nm. You MUST apply
-# an anti-reflection marking spray before firing. Skipping the spray
-# can reflect enough energy back up the beam path to damage the galvo
-# head or F-theta lens.
+# Sterling silver (.925) is ~97% reflective at 1064 nm. The spray is only
+# used for the very first breakthrough pass to break the mirror surface.
+# Deep 3D sculpting relies entirely on machine geometry and MOPA settings
+# — the spray vaporises within the first few depth layers.
 requires_spray: true
 spray_notes: >-
-  Sterling silver (.925) is ~97% reflective at 1064 nm. Apply a thin,
+  Sterling silver (.925) is ~97 % reflective at 1064 nm. Apply a thin,
   even coat of anti-reflection marking spray (xTool Metal Spray, LaserBond
-  100, or similar) before firing. Spray washes off with plain water.
-  Use half-hard temper blanks — they resist warping under rapid thermal
-  cycling better than dead-soft stock.
+  100, or similar) BEFORE the breakthrough pass only. The spray breaks the
+  mirror skin and is then fully vaporised within the first depth layers.
+  Spray washes off with plain water. Use half-hard temper blanks — they
+  resist warping under rapid thermal cycling better than dead-soft stock.
+
+# --- Hardware setup (mandatory for deep 3D engraving) -------------------
+# Back-reflection during deep 3D creates micro-smooth, highly reflective
+# steps in the silver that the spray cannot protect against.
+hardware_setup_notes: >-
+  Bed tilt 1.5°–2° is mandatory for deep 3D engraving on silver.
+  Prop up one edge of your engraving vice so the workpiece sits at a
+  permanent 1.5°–2° angle relative to the laser head. At 0° the reflected
+  beam returns straight up the lens column; at 1.5° it deflects 3°–4°
+  into the aluminium inner housing of the lens shroud where it dissipates
+  harmlessly. A 1.5° tilt across a 25 mm blank shifts focal height by
+  only ~0.65 mm — well within the ±1–2 mm Rayleigh range of a 150 mm
+  F-theta lens. Do NOT skip this step.
 
 heightmap:
   near_percentile: 5
@@ -39,16 +51,28 @@ heightmap:
   background_threshold: 0.88
   background_value: 1.0
 
+# --- Breakthrough pass (STEP 1 — run with spray, separate file) ----------
+# One single-pass surface scan to bond the spray and micro-rough the skin.
+# The export bundle includes a standalone breakthrough.lbrn2 for this step.
+breakthrough_pass:
+  speed_mm_s: 400
+  power_percent: 45
+  frequency_khz: 45
+  pulse_width_ns: 200
+  line_interval_mm: 0.015
+
+# --- Main 3D sculpt parameters (STEP 2 — project.lbrn2) -----------------
+# Short pulse width (130 ns) delivers a snappy explosive punch that
+# vaporises silver instantly rather than letting it pool into a mirror.
+# 60 kHz sits in the sweet spot: high enough peak power to ablate cleanly,
+# low enough to avoid the thermal accumulation that causes pooling.
 lightburn_starting_point:
   lens: "150mm"
-  # Silver is a better heat sink than brass — run slightly slower and
-  # with higher pulse energy (lower frequency, wider pulse) to break
-  # the surface cleanly without smearing.
-  speed_mm_s: 950
-  power_percent: 95
-  frequency_khz: 48       # low frequency = high peak power per pulse
-  pulse_width_ns: 250     # 200–350 ns for deep material removal on silver
-  line_interval_mm: 0.025
+  speed_mm_s: 600
+  power_percent: 75
+  frequency_khz: 60
+  pulse_width_ns: 130
+  line_interval_mm: 0.015
   passes: 256
   angle_increment: 45
-  cleanup_every_passes: 20
+  cleanup_every_passes: 18
