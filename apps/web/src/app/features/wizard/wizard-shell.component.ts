@@ -570,25 +570,33 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         <option [value]="profile.name" [selected]="profile.name === pipeline().render.profileName">{{ profile.name }}</option>
                       }
                     </select>
-                    @if (selectedProfile()?.requires_spray) {
-                      <div class="spray-warning">
-                        <strong>Reflectivity warning</strong>
-                        {{ selectedProfile()!.spray_notes }}
-                      </div>
-                    }
-                    @if (selectedProfile()?.hardware_setup_notes) {
-                      <div class="hardware-warning">
-                        <strong>Hardware setup required</strong>
-                        {{ selectedProfile()!.hardware_setup_notes }}
-                      </div>
-                    }
-                    @if (selectedProfile()?.has_breakthrough_pass) {
-                      <div class="breakthrough-info">
-                        <strong>Breakthrough pass included</strong>
-                        Your export bundle will contain a separate
-                        <code>breakthrough.lbrn2</code>. Open and run it
-                        first with spray applied, then open
-                        <code>project.lbrn2</code> for the full 3D engraving.
+                    @if (selectedProfile()?.requires_spray || selectedProfile()?.hardware_setup_notes || selectedProfile()?.has_breakthrough_pass) {
+                      <div class="preflight-checklist">
+                        <div class="preflight-header">Pre-flight checklist</div>
+                        <ol class="preflight-steps">
+                          @if (selectedProfile()?.hardware_setup_notes) {
+                            <li class="preflight-step preflight-step--danger">
+                              <strong>Set up bed tilt (1.5°–2°)</strong>
+                              <p>{{ selectedProfile()!.hardware_setup_notes }}</p>
+                            </li>
+                          }
+                          @if (selectedProfile()?.requires_spray) {
+                            <li class="preflight-step preflight-step--warn">
+                              <strong>Apply anti-reflection spray — let dry 30 s</strong>
+                              <p>{{ selectedProfile()!.spray_notes }}</p>
+                            </li>
+                          }
+                          @if (selectedProfile()?.has_breakthrough_pass) {
+                            <li class="preflight-step preflight-step--info">
+                              <strong>Run <code>breakthrough.lbrn2</code> (1 pass)</strong>
+                              <p>Bonds the spray and micro-roughens the mirror skin. This file is included in your export bundle. Fire it before starting the main project.</p>
+                            </li>
+                          }
+                          <li class="preflight-step">
+                            <strong>Run <code>project.lbrn2</code></strong>
+                            <p>Full 3D depth engraving stack{{ selectedProfile()?.has_breakthrough_pass ? ' — no spray needed for these passes' : '' }}.</p>
+                          </li>
+                        </ol>
                       </div>
                     }
                   </div>
@@ -1560,39 +1568,46 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     .toast-success { border-color: #27ae60; background: color-mix(in srgb, #27ae60 12%, var(--bg-surface)); }
     .toast-info    { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface)); }
 
-    .spray-warning,
-    .hardware-warning,
-    .breakthrough-info {
-      margin-top: 0.5rem;
-      padding: 0.6rem 0.75rem;
+    .preflight-checklist {
+      margin-top: 0.75rem;
+      border: 1px solid #e67e22;
       border-radius: 0.5rem;
-      border-width: 1px;
-      border-style: solid;
+      overflow: hidden;
       font-size: 0.8rem;
-      line-height: 1.4;
-      color: var(--text-primary);
     }
-    .spray-warning {
-      border-color: #e67e22;
-      background: color-mix(in srgb, #e67e22 12%, var(--bg-surface));
+    .preflight-header {
+      padding: 0.4rem 0.75rem;
+      background: color-mix(in srgb, #e67e22 18%, var(--bg-surface));
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #e67e22;
     }
-    .spray-warning strong { color: #e67e22; }
-    .hardware-warning {
-      border-color: #e74c3c;
-      background: color-mix(in srgb, #e74c3c 12%, var(--bg-surface));
+    .preflight-steps {
+      margin: 0;
+      padding: 0.6rem 0.75rem 0.65rem 2.1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      list-style: decimal;
     }
-    .hardware-warning strong { color: #e74c3c; }
-    .breakthrough-info {
-      border-color: #3498db;
-      background: color-mix(in srgb, #3498db 12%, var(--bg-surface));
-    }
-    .breakthrough-info strong { color: #3498db; }
-    .spray-warning strong,
-    .hardware-warning strong,
-    .breakthrough-info strong {
+    .preflight-step { line-height: 1.4; }
+    .preflight-step strong {
       display: block;
-      margin-bottom: 0.2rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.1rem;
     }
+    .preflight-step p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+      opacity: 0.8;
+    }
+    .preflight-step::marker { color: var(--text-secondary); font-weight: 600; }
+    .preflight-step--danger strong { color: #e74c3c; }
+    .preflight-step--warn   strong { color: #e67e22; }
+    .preflight-step--info   strong { color: #3498db; }
 
     .toast-body {
       flex: 1;
