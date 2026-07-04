@@ -6,15 +6,17 @@
 
 ## 1. Zone Vocabulary
 
-| Zone | Description | LightBurn priority |
-|------|-------------|-------------------|
-| **Field** | Smooth background plane behind the device | Fire 1st (anneal, darken) |
-| **Device** | Central figure / portrait / subject | Fire last (ablate, raise bright) |
-| **Border** | Decorative band between field and rim | Fire 2nd |
-| **Rim** | Outermost raised ring | Fire 2nd or 3rd |
-| **Exergue** | Bottom text zone below device | Same priority as device |
+| Zone | Description | LightBurn priority | Shape-agnostic? |
+|------|-------------|-------------------|-----------------|
+| **Field** | Smooth background plane behind the device | Fire 1st (anneal, darken) | ✅ Yes — `1 - device_mask` |
+| **Device** | Central figure / portrait / subject | Fire last (ablate, raise bright) | ✅ Yes — user-drawn mask |
+| **Border** | Decorative band between field and rim | Fire 2nd | ⚠️ Needs polygon-inset for non-circles |
+| **Rim** | Outermost raised ring | Fire 2nd or 3rd | ⚠️ Needs polygon-inset for non-circles |
+| **Exergue** | Bottom text zone below device | Same priority as device | ✅ Yes — bottom N% of bounding-box height |
 
-**Why order matters**: The LightBurn 3D Sliced engine fires layers in the order they appear in the `.lbrn2` file. Field → border → rim → device means the device re-ablates (brightens) material already darkened by the field pass. Reversing the order removes the contrast effect entirely.
+**Why order matters**: The LightBurn 3D Sliced engine fires layers in the order they appear in the `.lbrn2` file (community-confirmed behaviour, not officially documented by LightBurn). Field → border → rim → device means the device re-ablates (brightens) material already darkened by the field pass. Reversing the order removes the contrast effect entirely.
+
+**Shape generalisation**: Field, Device, and Exergue zones require no geometry — they are derived from the user-drawn subject mask or bounding-box arithmetic. Border and Rim zones are defined by inward offsets from the blank boundary; for circular blanks this is radial distance, for all other shapes it is a polygon-offset computation (see §5.2).
 
 ---
 
@@ -34,7 +36,9 @@ For coin profiles (`shape: circle` in YAML) the exporter already emits:
 
 This is LightBurn's native raster-clip mechanism. It is reliable, lossless, and lets the user drag the mask ring in LightBurn to reposition the coin without touching the PNG.
 
-**Extending to non-circular coins**: replace the Ellipse with a `Path` shape (SVG-style closed path). The `lbrn_writer.py` `ShapeRef` already carries `mask_id`; the writer would only need a `shape_type="Path"` branch with `<VertList>` children. This covers hex tokens, shield shapes, pendants, etc.
+**Extending to non-circular blanks**: replace the Ellipse with a `Path` shape (SVG-style closed path). The `lbrn_writer.py` `ShapeRef` already carries `mask_id`; the writer would only need a `shape_type="Path"` branch with `<VertList>` children. This covers hex tokens, shield shapes, triangles, pendants, etc.
+
+**Donut/annular blanks**: the outer boundary is an Ellipse (or Path); the inner hole is a second inner MaskID boundary. Model as a `Polygon` with a hole (Shapely: `Polygon(outer_ring, [inner_ring])`). The profile exposes `hole_radius_mm`; if set, the exporter emits both an outer and inner shape on the Tool layer. Border and rim masks are computed in the annular region between `hole_radius` and `outer_radius - rim_width`.
 
 ### 2.2 Internal zones — raster-only (no vector option)
 
@@ -50,7 +54,17 @@ field_layer = np.clip(1.0 - (1.0 - field_hm) * (1.0 - device_mask), 0.0, 1.0)
 device_layer = np.clip(1.0 - (1.0 - device_hm) * device_mask, 0.0, 1.0)
 ```
 
-Feathering at zone boundaries = Gaussian blur on the mask before compositing. A 3–10 px sigma eliminates hard seam lines.
+Feathering at zone boundaries = Gaussian blur on the mask before compositing. The correct sigma depends on material:
+
+| Material | Recommended σ | Reason |
+|----------|--------------|--------|
+| Silver, Brass | 1.5 px | Sharp relief reads well on reflective surfaces |
+| Coated steel, dark finishes | 2.5 px | Softer transitions hide laser edge artifacts |
+| Anodized aluminum | 3.0 px | Heat-sensitive; spread energy concentration at boundary |
+
+After compositing, apply a bilateral post-filter (`cv2.bilateralFilter`, σ_color=0.10, σ_space=10) to suppress dither-artifact halos at zone seams without smearing the transition itself.
+
+**Critical rule**: never frequency-decompose the sculptok heightmap across multiple layers (e.g., low-frequency field pass + high-frequency device pass from the same depth map). Overlapping pixels at shared frequencies compound depth 3–5× across layers, burning through material. One sculptok PNG per zone; each zone carries its full depth budget independently.
 
 ### 2.3 Why the existing subject mask step stays useful
 
@@ -114,15 +128,19 @@ pre_clean → zone:field → zone:border → zone:rim → zone:device → zone:e
 
 ### 5.2 Zone mask sources
 
-| Zone | Mask source |
-|------|-------------|
-| `zone:device` | User-drawn subject mask (the existing `/mask` route) |
-| `zone:field` | `1 - device_mask` — the logical inverse |
-| `zone:border` | Radial annulus: `coin_radius - border_width_px < r <= coin_radius` |
-| `zone:rim` | Radial annulus: outermost N px of the coin circle |
-| `zone:exergue` | Rectangle in the lower quarter of the coin area |
+| Zone | Mask source | Algorithm |
+|------|-------------|-----------|
+| `zone:device` | User-drawn subject mask (the existing `/mask` route) | rembg / BiRefNet / flood-fill |
+| `zone:field` | Logical inverse of device mask | `1 - device_mask` |
+| `zone:border` | Inward offset from blank boundary | **Circle**: radial annulus `radius - border_width_px < r ≤ radius`; **Polygon**: `Shapely.buffer(-border_width_px)` |
+| `zone:rim` | Outermost N px of blank boundary | **Circle**: radial annulus; **Polygon**: outer polygon minus `Shapely.buffer(-rim_width_px)` |
+| `zone:exergue` | Bottom N% of bounding-box height | `y > (1 - exergue_height_fraction) * bbox_height` — shape-agnostic |
 
-Border and rim masks are computed analytically from the coin geometry — no user drawing required.
+Border and rim masks for **circular blanks** are computed from radial distance. For **all other shapes** (hexagon, triangle, shield, donut), they are computed via Shapely polygon offset (`buffer(-n)`), which produces the correct inward-inset polygon region regardless of shape.
+
+**Donut/annular blanks**: the blank is modelled as `Polygon(outer_ring, [inner_hole_ring])`. The field mask covers the full annular region; border is the outer annular band (`outer_radius - border_width < r ≤ outer_radius`); rim is the innermost band adjacent to the hole (`hole_radius ≤ r < hole_radius + rim_width`). The exergue is suppressed for donut shapes (no bottom text zone makes sense on a ring).
+
+All masks receive Gaussian feathering before compositing. `sigma = base_sigma * profile.zone_boundary_sigma_scale` where `base_sigma = 1.5 px`.
 
 ### 5.3 Zone heightmaps
 
@@ -146,40 +164,52 @@ Where `alpha` = `background_intensity` (existing field) and `flat_surface` = `ba
 ## 6. Profile YAML Extension for Zone Parameters
 
 ```yaml
+# Existing shape field — extended enum
+shape: circle          # circle | rectangle | hexagon | triangle | donut | shield | path
+
 # Existing (unchanged)
 lightburn_starting_point:
   speed_mm_s: 600
   power_percent: 75
   ...
 
-# New: per-zone laser override
+# New: per-zone laser override (example: 60W MOPA silver calibrated values)
 zone_params:
   field:
-    speed_mm_s: 800      # faster, lower power — annealing, not ablation
-    power_percent: 55
-    frequency_khz: 80
-    passes: 2            # two annealing sweeps for uniform darkening
-  device:
-    speed_mm_s: 600
-    power_percent: 75
-    frequency_khz: 60    # primary sculptok depth pass
-  border:
-    speed_mm_s: 700
-    power_percent: 60
-    frequency_khz: 70
-  rim:
-    speed_mm_s: 900
-    power_percent: 40    # shallow raised ring — low power
+    speed_mm_s: 2100     # fast + low power = surface annealing, not ablation
+    power_percent: 32
     frequency_khz: 100
+    pulse_width_ns: 185
+    passes: 2            # two annealing sweeps for uniform field darkening
+  device:
+    speed_mm_s: 600      # same as lightburn_starting_point — full sculptok depth
+    power_percent: 75
+    frequency_khz: 60
+    pulse_width_ns: 130  # short pulse: explosive vaporisation, prevents pooling on silver
+  border:
+    speed_mm_s: 800
+    power_percent: 50
+    frequency_khz: 80
+    pulse_width_ns: 160
+  rim:
+    speed_mm_s: 1000
+    power_percent: 38    # shallow raised ring — low power, fast
+    frequency_khz: 100
+    pulse_width_ns: 185
 
-# Optional zone geometry overrides (defaults derived from print_width/height)
+# Zone geometry — defaults derived from print_width/height; override here
 zone_geometry:
   border_width_mm: 1.5
   rim_width_mm: 0.5
-  exergue_height_fraction: 0.18
+  exergue_height_fraction: 0.18   # bottom 18% of bounding-box height (shape-agnostic)
+  hole_radius_mm: ~               # donut inner hole radius (null = no hole)
+
+# Zone boundary feathering scale factor (multiplies base sigma of 1.5 px)
+# silver/brass = 1.0, coated steel = 1.7, anodized aluminum = 2.0
+zone_boundary_sigma_scale: 1.0
 ```
 
-The `zone_params` values are lifted by `service_adapter` into `ColorEntry.raw` overrides, following the same pattern as the existing `kind_color_overrides` and breakthrough pass.
+The `zone_params` values are lifted by `service_adapter` into `ColorEntry.raw` overrides, following the same pattern as the existing `kind_color_overrides` and breakthrough pass. The `shape` field drives which mask algorithm `zones.py` uses for border/rim: radial distance for `circle`; Shapely `buffer(-offset_px)` for all polygon shapes; dual-boundary Shapely polygon-with-hole for `donut`.
 
 ---
 
@@ -233,15 +263,20 @@ Wire `pre_clean_enabled` and other toggles into `service_adapter.do_plan()`. Unb
 Add `zone_hm_for_pass()` function in `mopa/zones.py`:
 - Takes `heightmap`, `mask`, `background_pattern`, `background_*` settings
 - Returns a composited float32 heightmap for one zone
-- Handles feathering at boundaries
+- Applies `cv2.bilateralFilter(σ_color=0.10, σ_space=10)` post-compositing to suppress dither-artifact halos at zone seams
 
 Add `PASS_KIND_FIELD`, `PASS_KIND_DEVICE`, etc. to `stages.py`.
 
 Add `zone_masks_from_geometry()` function:
-- Computes border/rim/exergue masks analytically from coin radius
-- Applies Gaussian feathering (3–5 px sigma at zone edges)
+- **Circle blanks**: border/rim as radial annulus (`coin_radius - width_px < r ≤ coin_radius`)
+- **All other shapes** (hexagon, triangle, shield): border/rim via `shapely.Polygon.buffer(-offset_px)` — polygon inset
+- **Donut**: outer Shapely polygon with inner hole (`Polygon(outer, [inner])`); rim is band adjacent to inner hole
+- Exergue: `y > (1 - exergue_height_fraction) * bbox_height` — shape-agnostic, no geometry library needed
+- Feathering sigma: `base_sigma=1.5 * profile.zone_boundary_sigma_scale` (profile field, default 1.0)
 
-**Files**: `mopa/zones.py` (new), `mopa/stages.py`.
+Add `shape` enum to `_KNOWN_TOP_LEVEL_KEYS` in `profiles.py`: `circle | rectangle | hexagon | triangle | donut | shield | path`.
+
+**Files**: `mopa/zones.py` (new), `mopa/stages.py`, `mopa/profiles.py`.
 
 ### Phase 2 — Profile YAML zone params *(half day)*
 
@@ -249,7 +284,11 @@ Parse `zone_params` in `service_adapter._profile_kind_color_overrides()`.
 Wire zone `ColorEntry` rows in `service_adapter.do_plan()`.  
 Each zone pass gets its `CutSetting` index from the next available slot after the existing passes.
 
-**Files**: `apps/api/service_adapter.py`, `mopa/profiles.py`.
+Add `zone_geometry` and `zone_boundary_sigma_scale` to `_KNOWN_TOP_LEVEL_KEYS` in `profiles.py`.
+
+Seed `zone_params` in `mopa_60w_silver.yaml` with the calibrated field-zone annealing values from §6. This is the reference implementation that other profiles will adapt.
+
+**Files**: `apps/api/service_adapter.py`, `mopa/profiles.py`, `profiles/mopa_60w_silver.yaml`.
 
 ### Phase 3 — Multi-layer `.lbrn2` export *(1 day)*
 
@@ -297,7 +336,23 @@ Store as 16-bit PNGs in `mopa/assets/borders/`. The zone compositing code tiles 
 
 ---
 
-## 9. What to Reconsider or Ditch
+## 9. Shape Support Matrix
+
+| Shape | Boundary algorithm | Border/Rim mask | Exergue | Status |
+|-------|-------------------|-----------------|---------|--------|
+| Circle / Oval | Ellipse | Radial annulus | Bottom 18% | ✅ Done |
+| Rectangle | Rect clip | `buffer(-n)` inset rect | Bottom 18% | ✅ Profile exists |
+| Hexagon | 6-vertex Path + `buffer(-n)` | Polygon inset | Bottom 18% | ⚠️ Phase 1 |
+| Triangle | 3-vertex Path + `buffer(-n)` | Polygon inset | Suppress (too small) | ⚠️ Phase 1 |
+| Donut / Annular | Ellipse + inner hole Ellipse | Annular bands | Suppress | ⚠️ Phase 1 |
+| Shield / Custom | SVG Path + `buffer(-n)` | Polygon inset | Bottom 18% | ⚠️ Phase 1 |
+| Signet Ring (flat) | Rectangle, `polarity_invert` | Optional border | Bottom 15% | ✅ Preset exists |
+
+Rotary-axis (curved shank) engraving is **explicitly out of scope** — the system assumes flat blanks throughout.
+
+---
+
+## 10. What to Reconsider or Ditch
 
 ### Subject mask wizard step — keep, repurpose
 
@@ -312,13 +367,17 @@ The current `background_pattern` field in `HeightmapSettings` composites the pat
 
 Consider renaming the current setting to `input_background_pattern` (or adding an `apply_at` option) to avoid ambiguity.
 
+### Heightmap frequency decomposition — forbidden
+
+Never split a single sculptok heightmap into frequency bands across multiple layers (low-frequency field pass + high-frequency device pass from one depth map). Overlapping pixels at shared frequencies compound depth **3–5× across layers**, burning through material. Each zone must carry an independent depth budget. This rule should be enforced as a comment at the zone compositing call site in `do_export_lbrn2()`.
+
 ### Color k-means passes
 
 The `color:*` pass kind (LAB k-means clusters from the photo) is largely superseded by zone-based design. Consider deprecating or hiding this behind a developer flag once zones are working — it adds complexity without clear user benefit for the numismatic use case.
 
 ---
 
-## 10. Near-Term Quick Wins (before Phase 1)
+## 11. Near-Term Quick Wins (before Phase 1)
 
 These require minimal code and have immediate user impact:
 
