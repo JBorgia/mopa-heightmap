@@ -239,27 +239,36 @@ export function deserializeStudioState(raw: string | null): StudioState {
 
   try {
     const parsed = JSON.parse(raw) as Partial<StudioState>;
+    const defaults = cloneDefaultStudioState();
     return {
-      ...cloneDefaultStudioState(),
-      ...parsed,
-      session: { ...cloneDefaultStudioState().session, ...parsed.session },
+      ...defaults,
+      // Server-side artifact IDs (imageId, heightmapId, maskId, plan, …) are
+      // stored in the server's in-memory or temp-file store which is wiped on
+      // every restart. Restoring stale IDs causes the UI to show "Heightmap
+      // ready" or "Upload complete" when nothing is actually there. Only user
+      // preferences survive a reload: profile choice, heightmap settings, mask
+      // backend / edge-softness, and UI layout preferences.
+      session: defaults.session,
+      output: defaults.output,
       pipeline: {
-        ...cloneDefaultStudioState().pipeline,
-        ...parsed.pipeline,
-        mask: { ...cloneDefaultStudioState().pipeline.mask, ...parsed.pipeline?.mask },
-        render: { ...cloneDefaultStudioState().pipeline.render, ...parsed.pipeline?.render },
-        settings: {
-          ...cloneDefaultStudioState().pipeline.settings,
-          ...parsed.pipeline?.settings,
+        ...defaults.pipeline,
+        mask: {
+          ...defaults.pipeline.mask,
+          // Keep non-artifact preferences; drop the stale server-side maskId.
+          backend: parsed.pipeline?.mask?.backend ?? defaults.pipeline.mask.backend,
+          clickerKey: parsed.pipeline?.mask?.clickerKey ?? defaults.pipeline.mask.clickerKey,
+          edgeSoftness: parsed.pipeline?.mask?.edgeSoftness ?? defaults.pipeline.mask.edgeSoftness,
         },
+        render: { ...defaults.pipeline.render, ...parsed.pipeline?.render },
+        settings: { ...defaults.pipeline.settings, ...parsed.pipeline?.settings },
       },
-      output: { ...cloneDefaultStudioState().output, ...parsed.output },
-      // Toasts and wizardPage are ephemeral: toasts have dead timeouts after
-      // reload, and wizardPage refers to a step whose server artifacts
-      // (imageId, maskId, heightmapId) are gone after a server restart.
-      // Always reset both. When persistent storage lands (R2/Supabase),
-      // wizardPage can be restored once artifact IDs survive restarts.
-      ui: { ...cloneDefaultStudioState().ui, ...parsed.ui, toasts: [], wizardPage: DEFAULT_WIZARD_PAGE },
+      ui: {
+        ...defaults.ui,
+        ...parsed.ui,
+        // Always clear ephemeral UI state.
+        toasts: [],
+        wizardPage: DEFAULT_WIZARD_PAGE,
+      },
     };
   } catch {
     return cloneDefaultStudioState();

@@ -2235,26 +2235,6 @@ export class WizardShellComponent {
       });
     });
 
-    // Resume: on first load, if the session already has artifacts jump to the
-    // furthest meaningful step so the user doesn't click Next repeatedly.
-    effect(() => {
-      const out = this.output();
-      const sess = this.session();
-      untracked(() => {
-        if (this.ui().wizardPage !== 0) return; // user or prior effect already set a page
-        if (this._autoAdvanced().size > 0) return; // auto-advance already kicked in
-        let target = 0;
-        if (sess.imageId) target = 2;
-        if (out.heightmapId) target = 3;
-        if (out.plan) target = 4;
-        if (target > 0) {
-          // Seed _autoAdvanced for all steps before target so the auto-advance
-          // effect won't fire again on pages we're skipping over.
-          this._autoAdvanced.update(() => new Set(Array.from({length: target}, (_, i) => i)));
-          this.selectPage(target as 0 | 1 | 2 | 3 | 4);
-        }
-      });
-    });
   }
 
   /**
