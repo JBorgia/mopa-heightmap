@@ -767,6 +767,14 @@ class HeightmapService:
         lbrn2_path: Path | None = None
         if request.write_lbrn2:
             lbrn2_path = final_dir / "project.lbrn2"
+            _pd: Dict[str, Any] = {}
+            if profile_name:
+                try:
+                    _pd = load_profile(profile_name)
+                except Exception:
+                    pass
+            _starting = _pd.get("lightburn_starting_point") or {}
+            _pass_count = int(_starting.get("passes", 256))
             # Always embed the bitmap data — LightBurn renders bitmaps
             # from the Data attribute, not the SourceFile reference.
             write_lbrn(
@@ -777,6 +785,7 @@ class HeightmapService:
                 print_width_mm=width_mm,
                 print_height_mm=height_mm,
                 thumbnail_b64=make_thumbnail_b64(heightmap),
+                image_pass_count=_pass_count,
             )
 
         clb_path: Path | None = None

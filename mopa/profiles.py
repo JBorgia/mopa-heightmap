@@ -139,6 +139,12 @@ _KNOWN_TOP_LEVEL_KEYS = {
     # Export geometry: "circle" clips the engraving to an Ellipse (coin/medallion);
     # omit or set to "rectangle" for plaques and flat stock.
     "shape",
+    # Reflective-metal safety fields — used by the wizard pre-flight checklist
+    # and the exporter to emit breakthrough.lbrn2.
+    "requires_spray",
+    "spray_notes",
+    "hardware_setup_notes",
+    "breakthrough_pass",
     "__profile_path__",
 }
 

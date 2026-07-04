@@ -28,6 +28,7 @@ export class PlanService {
         image_id: session.imageId,
         heightmap_id: output.heightmapId,
         profile_name: pipeline.render.profileName ?? undefined,
+        settings: pipeline.settings,
       })
       .subscribe({
         next: (response) => {

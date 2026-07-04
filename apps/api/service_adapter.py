@@ -428,6 +428,9 @@ def do_export_lbrn2(
     if profile_name:
         profile_payload = _load_profile_payload(profile_name)
 
+    starting = profile_payload.get("lightburn_starting_point") or {}
+    image_pass_count = int(starting.get("passes", 256))
+
     box_w = profile_payload.get("print_width_mm")
     box_h = profile_payload.get("print_height_mm")
     box_w = float(box_w) if isinstance(box_w, (int, float)) else None
@@ -532,6 +535,49 @@ def do_export_lbrn2(
 
         profile = plan.profile
         used = {ep.cut_setting.index: ep.cut_setting for ep in plan.passes}
+
+        # Apply lightburn_starting_point overrides to the form pass so the
+        # exported .lbrn2 uses the profile's actual laser parameters rather
+        # than the card's generic C01 defaults.
+        if starting:
+            for ep in plan.passes:
+                if ep.kind != "form":
+                    continue
+                fe = ep.cut_setting
+                sp_speed    = starting.get("speed_mm_s")
+                sp_power    = starting.get("power_percent")
+                sp_freq_khz = starting.get("frequency_khz")
+                sp_pulse_ns = starting.get("pulse_width_ns")
+                sp_interval = starting.get("line_interval_mm")
+                if not any(v is not None for v in [sp_speed, sp_power, sp_freq_khz, sp_pulse_ns, sp_interval]):
+                    break
+                override_raw = dict(fe.raw)
+                if sp_speed is not None:
+                    override_raw["speed"] = str(int(float(sp_speed)))
+                if sp_power is not None:
+                    override_raw["maxPower"] = str(int(float(sp_power)))
+                if sp_freq_khz is not None:
+                    override_raw["frequency"] = str(int(float(sp_freq_khz) * 1000))
+                if sp_pulse_ns is not None:
+                    override_raw["QPulseWidth"] = str(int(sp_pulse_ns))
+                if sp_interval is not None:
+                    override_raw["interval"] = str(float(sp_interval))
+                # Don't embed numPasses here — image_pass_count controls it below
+                override_raw.pop("numPasses", None)
+                # Enable cleanup SubLayer when profile requests it
+                if starting.get("cleanup_every_passes"):
+                    override_raw["cleanupPass"] = "1"
+                used[fe.index] = ColorEntry(
+                    index=fe.index,
+                    name=fe.name,
+                    max_power=float(sp_power) if sp_power is not None else fe.max_power,
+                    speed=float(sp_speed) if sp_speed is not None else fe.speed,
+                    frequency=int(float(sp_freq_khz) * 1000) if sp_freq_khz is not None else fe.frequency,
+                    q_pulse_width=int(sp_pulse_ns) if sp_pulse_ns is not None else fe.q_pulse_width,
+                    interval=float(sp_interval) if sp_interval is not None else fe.interval,
+                    raw=override_raw,
+                )
+                break
 
         if add_coin_circle:
             # Ellipse will be inserted at this position in the final list.
@@ -649,6 +695,7 @@ def do_export_lbrn2(
             app_version=profile.app_version or "1.7.00",
             thumbnail_b64=make_thumbnail_b64(hm),
             image_negative=bool(profile_payload.get("polarity_invert", False)),
+            image_pass_count=image_pass_count,
             notes=_notes,
         )
         xml_bytes = ET.tostring(tree.getroot(), encoding="utf-8")
@@ -737,9 +784,16 @@ def do_plan(
             clusters = quantize_to_color_masks(image, k=n_color)
             color_masks = color_masks_for_planner(clusters)
 
+    user_toggles: Dict[str, bool] = {}
+    if settings:
+        user_toggles["pre_clean"]   = bool(getattr(settings, "pre_clean_enabled", False))
+        user_toggles["photo_tonal"] = bool(getattr(settings, "photo_tonal_enabled", False))
+        user_toggles["signature"]   = bool((getattr(settings, "signature_text", "") or "").strip())
+
     result = _plan_passes(
         heightmap=hm,
         profile=material_profile,
+        user_toggles=user_toggles,
         mask_per_color=color_masks,
         kind_color_overrides=_profile_kind_color_overrides(profile_payload),
     )

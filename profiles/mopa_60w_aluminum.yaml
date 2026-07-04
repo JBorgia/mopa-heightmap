@@ -61,6 +61,6 @@ lightburn_starting_point:
   frequency_khz: 80
   pulse_width_ns: 180
   line_interval_mm: 0.02
-  passes: 220
+  passes: 256
   angle_increment: 45
   cleanup_every_passes: 18
