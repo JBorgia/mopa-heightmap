@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
+    "prestart": "powershell -NoProfile -Command \"@(8000,4200) | ForEach-Object { $p=$_; Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique | ForEach-Object { Write-Host \\\"Killing PID $_ on :$p\\\"; Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }\"",
     "start": "concurrently -k -n api,web -c blue,green \"pnpm:start:api\" \"pnpm:start:web\"",
     "start:api": "cd ..\\.. && .venv\\Scripts\\python.exe -m uvicorn apps.api.main:app --reload --port 8000",
     "start:web": "ng serve",

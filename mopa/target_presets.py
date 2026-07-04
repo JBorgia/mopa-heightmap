@@ -52,6 +52,8 @@ class TargetPreset:
     polarity_invert: bool
     heightmap_overrides: Dict[str, Any] = field(default_factory=dict)
     notes: str = ""
+    default_shape: str = "rectangle"
+    available_shapes: tuple = field(default_factory=tuple)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -110,6 +112,8 @@ def _from_dict(data: Dict[str, Any], *, source: Optional[Path] = None) -> Target
             polarity_invert=bool(data.get("polarity_invert", False)),
             heightmap_overrides=dict(data.get("heightmap") or {}),
             notes=str(data.get("notes", "")).strip(),
+            default_shape=str(data.get("default_shape", "rectangle")),
+            available_shapes=tuple(str(s) for s in data.get("available_shapes") or []),
         )
     except (KeyError, TypeError, ValueError) as exc:
         location = f" ({source})" if source is not None else ""

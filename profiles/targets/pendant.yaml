@@ -3,6 +3,8 @@ display_name: Pendant
 print_width_mm: 40.0
 print_height_mm: 50.0
 polarity_invert: false
+default_shape: circle
+available_shapes: [circle, rectangle, shield]
 heightmap:
   input_clahe: true
   input_clahe_clip: 1.5

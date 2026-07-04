@@ -389,6 +389,7 @@ def do_export_lbrn2(
     heightmap_id: str,
     profile_name: Optional[str] = None,
     subject_mask_id: Optional[str] = None,
+    shape_override: Optional[str] = None,
 ) -> bytes:
     """Serialise a stored PassPlan into a zip bundle ready for LightBurn.
 
@@ -488,10 +489,11 @@ def do_export_lbrn2(
     sq_mm = max(print_w_mm, print_h_mm)
     sq_px = max(px_w, px_h)
 
-    # Detect coin profile: explicit shape=circle declaration triggers
-    # Tool-layer Ellipse clipping instead of pixel-level mask baking.
+    # Detect coin profile: explicit shape=circle declaration (or shape_override)
+    # triggers Tool-layer Ellipse clipping instead of pixel-level mask baking.
+    effective_shape = shape_override or profile_payload.get("shape") or "rectangle"
     add_coin_circle = (
-        profile_payload.get("shape") == "circle"
+        effective_shape == "circle"
         and box_w is not None and box_h is not None
     )
 
@@ -810,6 +812,7 @@ def _build_zone_passes(
     hm: np.ndarray,
     profile_payload: Dict[str, Any],
     material_profile: Any,
+    shape_override: Optional[str] = None,
 ) -> Optional[List[EngravingPass]]:
     """Build zone EngravingPass objects when the profile has zone_params.
 
@@ -831,7 +834,7 @@ def _build_zone_passes(
     scale = min(box_w / px_w, box_h / px_h)
     px_per_mm = 1.0 / scale
 
-    shape = str(profile_payload.get("shape", "rectangle"))
+    shape = shape_override or str(profile_payload.get("shape", "rectangle"))
     if shape not in VALID_SHAPES:
         shape = "rectangle"
 
@@ -906,6 +909,7 @@ def do_plan(
     heightmap_id: str,
     profile_name: Optional[str] = None,
     settings: Optional[HeightmapSettings] = None,
+    shape_override: Optional[str] = None,
 ) -> PassPlanResponse:
     """Plan the engraving stack.
 
@@ -942,7 +946,7 @@ def do_plan(
         user_toggles["signature"]   = bool((getattr(settings, "signature_text", "") or "").strip())
 
     # Build zone passes when the profile defines zone_params.
-    zone_passes = _build_zone_passes(hm, profile_payload, material_profile)
+    zone_passes = _build_zone_passes(hm, profile_payload, material_profile, shape_override=shape_override)
     if zone_passes:
         # Zones replace the form pass — disable it.
         user_toggles[PASS_KIND_FORM] = False

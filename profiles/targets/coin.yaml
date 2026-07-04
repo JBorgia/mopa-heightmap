@@ -3,6 +3,8 @@ display_name: Coin / medal
 print_width_mm: 50.0
 print_height_mm: 50.0
 polarity_invert: false
+default_shape: circle
+available_shapes: [circle, hexagon, triangle, donut, rectangle]
 heightmap:
   input_clahe: true
   input_clahe_clip: 1.5

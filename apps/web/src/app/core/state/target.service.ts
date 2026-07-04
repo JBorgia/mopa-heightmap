@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { ApiClientService } from '../api/api-client.service';
 import type { HeightmapSettings, TargetPresetSummary } from '../api/api-types';
@@ -21,6 +21,12 @@ export class TargetService {
 
   readonly presets = signal<TargetPresetSummary[]>([]);
   readonly active = signal<string | null>(null);
+  readonly activeShape = signal<string | null>(null);
+
+  readonly activePreset = computed(() => {
+    const name = this.active();
+    return name ? (this.presets().find(p => p.name === name) ?? null) : null;
+  });
 
   loadPresets(): void {
     this.apiClient.listTargets().subscribe({
@@ -34,15 +40,12 @@ export class TargetService {
     if (!preset) return;
     // Always-applied fields from the preset summary.
     this.renderService.patchSettings('polarity_invert', preset.polarity_invert);
-    // The preset's full heightmap-overrides block isn't on the summary
-    // (kept off the wire to avoid duplicating defaults). The CLI applies
-    // those server-side; in the UI we apply just the high-signal fields:
-    // polarity_invert, a sensible per-target subject mask default, and
-    // the print-aspect ratio so auto-crop "just works" once enabled.
     if (preset.name === 'plaque') {
       this.renderService.patchSettings('subject_mask_enabled', false);
+      this.renderService.patchSettings('input_auto_crop', false);
     } else {
       this.renderService.patchSettings('subject_mask_enabled', true);
+      this.renderService.patchSettings('input_auto_crop', true);
     }
     if (preset.print_height_mm > 0) {
       this.renderService.patchSettings(
@@ -51,6 +54,7 @@ export class TargetService {
       );
     }
     this.active.set(name);
+    this.activeShape.set(preset.default_shape ?? 'rectangle');
     this.sessionTree.pushHistory(`target:apply:${name}`);
     this.sessionTree.addToast({
       id: crypto.randomUUID(),
@@ -58,6 +62,10 @@ export class TargetService {
       summary: 'Target preset applied',
       detail: `${preset.display_name} — ${preset.print_width_mm}×${preset.print_height_mm} mm${preset.polarity_invert ? ', polarity inverted' : ''}`,
     });
+  }
+
+  setShape(shape: string): void {
+    this.activeShape.set(shape);
   }
 
   /** Helper used by the UI to read a single field from the active preset. */
@@ -75,11 +83,6 @@ export class TargetService {
     return preset?.print_height_mm ?? null;
   }
 
-  /**
-   * Future hook: once the export request grows print-size fields,
-   * activeWidthMm()/activeHeightMm() flow into them so the bundle's
-   * ``W``/``H`` attributes match the target preset.
-   */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private _unused(_settings: HeightmapSettings): void {}
 }

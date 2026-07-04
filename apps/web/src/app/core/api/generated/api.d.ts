@@ -238,8 +238,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Credits */
-        get: operations["credits_sculptok_credits_get"];
+        /** Credits Route */
+        get: operations["credits_route_sculptok_credits_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -257,8 +257,32 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Generate */
+        /**
+         * Generate
+         * @description Generate a heightmap.
+         *
+         *     Returns either:
+         *       - {job_id} when Redis is available (async path)
+         *       - SculptokGenerateResponse when running synchronously (fallback)
+         */
         post: operations["generate_sculptok_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sculptok/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll Job */
+        get: operations["poll_job_sculptok_jobs__job_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -310,6 +334,23 @@ export interface paths {
         put?: never;
         /** Upload Heightmap */
         post: operations["upload_heightmap_upload_heightmap_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/polar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Polar Webhook */
+        post: operations["polar_webhook_webhooks_polar_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -433,6 +474,8 @@ export interface components {
             sculptok_input_id?: string | null;
             /** Subject Mask Id */
             subject_mask_id?: string | null;
+            /** Shape Override */
+            shape_override?: string | null;
         };
         /** ExportLbrn2Request */
         ExportLbrn2Request: {
@@ -442,6 +485,10 @@ export interface components {
             heightmap_id: string;
             /** Profile Name */
             profile_name?: string | null;
+            /** Subject Mask Id */
+            subject_mask_id?: string | null;
+            /** Shape Override */
+            shape_override?: string | null;
         };
         /** ExportPngRequest */
         ExportPngRequest: {
@@ -624,6 +671,12 @@ export interface components {
              */
             dither_levels: number;
             /**
+             * Heightmap Enhance Mode
+             * @default off
+             * @enum {string}
+             */
+            heightmap_enhance_mode: "off" | "portrait" | "standard" | "coin";
+            /**
              * Pre Clean Enabled
              * @default false
              */
@@ -708,6 +761,19 @@ export interface components {
              */
             auto_cropped: boolean;
         };
+        /** JobStatusResponse */
+        JobStatusResponse: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "done" | "failed";
+            result?: components["schemas"]["SculptokGenerateResponse"] | null;
+            /** Error */
+            error?: string | null;
+        };
         /** MaskRequest */
         MaskRequest: {
             /** Image Id */
@@ -750,6 +816,8 @@ export interface components {
             /** Profile Name */
             profile_name?: string | null;
             settings?: components["schemas"]["HeightmapSettings"];
+            /** Shape Override */
+            shape_override?: string | null;
         };
         /** PassPlanResponse */
         PassPlanResponse: {
@@ -915,6 +983,13 @@ export interface components {
              * @default
              */
             notes: string;
+            /**
+             * Default Shape
+             * @default rectangle
+             */
+            default_shape: string;
+            /** Available Shapes */
+            available_shapes?: string[];
         };
         /** UploadResponse */
         UploadResponse: {
@@ -1353,7 +1428,7 @@ export interface operations {
             };
         };
     };
-    credits_sculptok_credits_get: {
+    credits_route_sculptok_credits_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1376,7 +1451,9 @@ export interface operations {
     generate_sculptok_generate_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1392,7 +1469,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SculptokGenerateResponse"];
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    poll_job_sculptok_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobStatusResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1479,6 +1587,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeightmapUploadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    polar_webhook_webhooks_polar_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "webhook-signature"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description Validation Error */

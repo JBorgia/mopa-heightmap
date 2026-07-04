@@ -3,6 +3,8 @@ display_name: Plaque
 print_width_mm: 80.0
 print_height_mm: 60.0
 polarity_invert: false
+default_shape: rectangle
+available_shapes: [rectangle]
 heightmap:
   input_clahe: true
 notes: >-

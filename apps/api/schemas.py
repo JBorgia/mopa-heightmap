@@ -69,6 +69,14 @@ class HeightmapSettings(BaseModel):
     dither: bool = False
     dither_levels: int = Field(256, ge=2, le=1024)
 
+    # Heightmap quality enhancement.  Applied after polarity normalisation
+    # to push photo-derived depth maps toward coin/relief quality.
+    # 'off'      — passthrough (default, preserves exact Sculptok output)
+    # 'portrait' — gentle contrast + mild gamma; natural-looking portraits
+    # 'standard' — moderate stretch + gamma + light unsharp mask
+    # 'coin'     — aggressive stretch + gamma + CLAHE + unsharp mask
+    heightmap_enhance_mode: Literal["off", "portrait", "standard", "coin"] = "off"
+
     # Pre-clean pass — defocused full-frame oxide / oil burn-off. Opt-in.
     pre_clean_enabled: bool = False
 
@@ -165,6 +173,7 @@ class PassPlanRequest(BaseModel):
     heightmap_id: str
     profile_name: Optional[str] = None
     settings: HeightmapSettings = Field(default_factory=HeightmapSettings)
+    shape_override: Optional[str] = None
 
 
 class PassEntry(BaseModel):
@@ -192,6 +201,7 @@ class ExportLbrn2Request(BaseModel):
     # computed (background pixels raised to 1.0 = no engraving). Not emitted
     # as a .lbrn2 layer — LightBurn can only clip via vector shapes, not raster.
     subject_mask_id: Optional[str] = None
+    shape_override: Optional[str] = None
 
 
 class ExportStlRequest(BaseModel):
@@ -226,6 +236,7 @@ class ExportBundleRequest(BaseModel):
     image_id: Optional[str] = None              # source photo
     sculptok_input_id: Optional[str] = None     # post-prep photo uploaded to sculptok
     subject_mask_id: Optional[str] = None       # subject mask (deliverable)
+    shape_override: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +284,8 @@ class TargetPresetSummary(BaseModel):
     print_height_mm: float
     polarity_invert: bool
     notes: str = ""
+    default_shape: str = "rectangle"
+    available_shapes: List[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,8 @@ async def targets() -> List[TargetPresetSummary]:
             print_height_mm=p.print_height_mm,
             polarity_invert=p.polarity_invert,
             notes=p.notes,
+            default_shape=p.default_shape,
+            available_shapes=list(p.available_shapes),
         )
         for p in list_target_presets()
     ]

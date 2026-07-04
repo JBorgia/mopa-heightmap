@@ -32,6 +32,7 @@ from .external_heightmap import (
     DEFAULT_POLARITY,
     load_external_heightmap,
 )
+from .heightmap_enhance import enhance_for_engraving
 from .history import append_history, make_entry
 from .imgproc import condition_input, settings_from_mapping
 from .preview import create_calibration_ramp, render_preview
@@ -65,6 +66,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # sculptok download and sets this path before calling render().
     "external_heightmap_path": "",
     "external_heightmap_polarity": "bright_raised",  # | dark_raised | auto
+
+    # Post-processing enhancement applied to the loaded heightmap.
+    # 'off' = passthrough (default); 'portrait' | 'standard' | 'coin' for
+    # increasing levels of contrast, gamma, and edge sharpening.
+    "heightmap_enhance_mode": "off",
 
     # Polarity invert at write time — flips the saved heightmap so the
     # subject engraves deep instead of the background. Used for signet
@@ -307,14 +313,20 @@ class HeightmapService:
             raise FileNotFoundError(f"External heightmap not found: {external_path}")
 
         polarity = str(settings.get("external_heightmap_polarity", DEFAULT_POLARITY))
-        # Passthrough load: bright = raised (LightBurn surface = 1.0 = no
-        # engraving). No auto-stretch, no tone curve, no smoothing —
-        # sculptok already shaped this for engraving.
         heightmap = load_external_heightmap(
             external_path,
             target_size=None,            # preserve sculptok's native size
             polarity=polarity,            # type: ignore[arg-type]
         )
+
+        # Optional post-processing to sharpen depth zones for coin/relief quality.
+        enhance_mode = str(settings.get("heightmap_enhance_mode", "off"))
+        if enhance_mode != "off":
+            heightmap = enhance_for_engraving(
+                heightmap,
+                enhance_mode,
+                subject_alpha=subject_alpha,
+            )
 
         # Polarity invert (signet-ring mode). Flip the whole heightmap
         # so the subject engraves deep and the background stays surface.

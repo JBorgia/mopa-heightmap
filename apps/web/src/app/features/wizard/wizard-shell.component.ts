@@ -2,7 +2,9 @@
 import {
   Component,
   DestroyRef,
+  ElementRef,
   PLATFORM_ID,
+  ViewChild,
   computed,
   effect,
   inject,
@@ -185,7 +187,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
 
                   @if (targetService.presets().length > 0) {
                     <div class="control-group">
-                      <label>What are you engraving?</label>
+                      <label>What are you engraving? <span class="required-mark">*</span></label>
                       <div class="target-chips" role="group" aria-label="Target object preset">
                         @for (preset of targetService.presets(); track preset.name) {
                           <button
@@ -194,10 +196,51 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                             [class.active]="targetService.active() === preset.name"
                             (click)="onTargetSelect(preset.name)"
                           >
-                            {{ preset.display_name }}
+                            <span class="chip-name">{{ preset.display_name }}</span>
+                            <span class="chip-meta">{{ preset.print_width_mm | number:'1.0-0' }}×{{ preset.print_height_mm | number:'1.0-0' }} mm{{ preset.polarity_invert ? ' · inverted' : '' }}</span>
                           </button>
                         }
                       </div>
+                      @if (!targetService.active()) {
+                        <p class="muted small required-hint">Select what you're engraving to continue.</p>
+                      }
+                    </div>
+                  }
+
+                  @if (targetService.activePreset(); as preset) {
+                    @if (preset.available_shapes && preset.available_shapes.length > 1) {
+                      <div class="control-group">
+                        <label>Shape</label>
+                        <div class="target-chips" role="group" aria-label="Shape selection">
+                          @for (shape of preset.available_shapes; track shape) {
+                            <button
+                              type="button"
+                              class="target-chip shape-chip"
+                              [class.active]="targetService.activeShape() === shape"
+                              (click)="targetService.setShape(shape)"
+                            >
+                              {{ shapeLabel(shape) }}
+                            </button>
+                          }
+                        </div>
+                      </div>
+                    }
+                  }
+
+                  @if (session().imageId && targetService.active()) {
+                    <div class="shape-canvas-section">
+                      <div class="shape-canvas-header">
+                        <strong>Position the {{ shapeLabel(targetService.activeShape() ?? 'rectangle') }} over your subject</strong>
+                        <span class="muted small">Drag to move · corner handles to resize · defines what Sculptok sees</span>
+                      </div>
+                      <canvas
+                        #shapeCanvas
+                        class="shape-canvas"
+                        (pointerdown)="onShapePointerDown($event)"
+                        (pointermove)="onShapePointerMove($event)"
+                        (pointerup)="onShapePointerUp($event)"
+                        (pointercancel)="onShapePointerUp($event)"
+                      ></canvas>
                     </div>
                   }
 
@@ -395,6 +438,22 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       Pre-sculptok prep <span class="step-tag">optional</span>
                     </summary>
                     <div class="collapsible-body">
+                      <div class="control-group">
+                        <label for="wiz-enhance">
+                          Heightmap enhancement
+                          <app-info-tip label="Heightmap enhancement"
+                            text="Post-processes the AI depth map to get closer to the high-contrast zone structure of professional coin heightmaps. 'Coin' applies gamma, local contrast (CLAHE), and edge sharpening. Start with 'Standard' and try 'Coin' for medallion/coin designs."></app-info-tip>
+                        </label>
+                        <select id="wiz-enhance"
+                          [value]="pipeline().settings.heightmap_enhance_mode"
+                          (change)="onSettingValue('heightmap_enhance_mode', $event)">
+                          <option value="off">Off — Sculptok output as-is</option>
+                          <option value="portrait">Portrait — gentle contrast + mild gamma</option>
+                          <option value="standard">Standard — moderate contrast + unsharp mask</option>
+                          <option value="coin">Coin — aggressive contrast + CLAHE + sharpen</option>
+                        </select>
+                      </div>
+
                       <p class="muted small">
                         Cleans the photo before sculptok sees it. Defaults are off — turn on
                         when the source is dim, blurry, or has heavy specular highlights.
@@ -601,19 +660,24 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     }
                   </div>
                   <div class="control-actions">
-                    <button
-                      type="button"
-                      [disabled]="!output().heightmapId || planService.inFlight() || !!output().plan"
-                      (click)="computePlan()"
-                    >
-                      @if (planService.inFlight()) {
-                        Computing…
-                      } @else if (output().plan) {
-                        Plan ready
-                      } @else {
-                        Compute pass plan
-                      }
-                    </button>
+                    @if (output().plan && !planService.inFlight()) {
+                      <div class="plan-ready-row">
+                        <span class="plan-ready-badge">Plan ready ({{ output().plan!.passes.length }} passes)</span>
+                        <button type="button" class="secondary small"
+                          [disabled]="!output().heightmapId"
+                          (click)="computePlan()">
+                          Recompute
+                        </button>
+                      </div>
+                    } @else {
+                      <button
+                        type="button"
+                        [disabled]="!output().heightmapId || planService.inFlight()"
+                        (click)="computePlan()"
+                      >
+                        @if (planService.inFlight()) { Computing… } @else { Compute pass plan }
+                      </button>
+                    }
                   </div>
                   @if (!output().heightmapId) {
                     <p class="muted disabled-hint">
@@ -765,7 +829,11 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     }
                   </button>
                 } @else {
-                  <button type="button" (click)="nextPage()">Next →</button>
+                  <button type="button"
+                    [disabled]="ui().wizardPage === 0 && !targetService.active()"
+                    (click)="nextPage()">
+                    Next →
+                  </button>
                 }
               </div>
             </section>
@@ -1928,21 +1996,109 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
     }
 
     .target-chip {
-      border-radius: 999px;
+      border-radius: 0.65rem;
       border: 1px solid var(--border-input);
       background: var(--bg-surface);
       color: var(--text-primary);
-      padding: 0.35rem 0.85rem;
+      padding: 0.45rem 0.85rem;
       font: inherit;
       font-size: 0.82rem;
       cursor: pointer;
       transition: background 120ms, border-color 120ms, color 120ms;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.15rem;
+    }
+
+    .target-chip.shape-chip {
+      flex-direction: row;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0.35rem 0.85rem;
+    }
+
+    .chip-name {
+      font-weight: 600;
+      font-size: 0.82rem;
+    }
+
+    .chip-meta {
+      font-size: 0.73rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .target-chip.active .chip-meta {
+      color: color-mix(in srgb, var(--action-fg) 75%, transparent);
     }
 
     .target-chip.active {
       background: var(--action-bg);
       border-color: var(--action-bg);
       color: var(--action-fg);
+    }
+
+    .required-mark {
+      color: var(--action-bg);
+      font-weight: 700;
+    }
+
+    .required-hint {
+      margin-top: 0.35rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Shape canvas viewer ─────────────────────────────────────────── */
+    .shape-canvas-section {
+      border: 1px solid var(--border-default);
+      border-radius: 0.75rem;
+      overflow: hidden;
+      background: #111;
+    }
+
+    .shape-canvas-header {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      padding: 0.6rem 0.85rem;
+      background: var(--bg-sunken);
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    .shape-canvas-header strong {
+      font-size: 0.85rem;
+    }
+
+    .shape-canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    /* ── Plan ready badge ────────────────────────────────────────────── */
+    .plan-ready-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+      border: 1px solid var(--accent);
+      border-radius: 0.5rem;
+    }
+
+    .plan-ready-badge {
+      flex: 1;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    button.small {
+      padding: 0.3rem 0.65rem;
+      font-size: 0.8rem;
     }
 
     /* ── Generate & package hero CTA ─────────────────────────────────── */
@@ -2028,6 +2184,27 @@ export class WizardShellComponent {
 
   /** Position (0-100) of the before/after comparison slider in the preview pane. */
   protected readonly comparisonSplit = signal(50);
+
+  // ── Shape canvas ────────────────────────────────────────────────────────
+  // The canvas overlay on step 1 lets the user position and size the shape
+  // over their photo before it goes to Sculptok.
+
+  private readonly _shapeCanvas = signal<HTMLCanvasElement | null>(null);
+  private readonly _shapeImgLoaded = signal(false);
+  private _shapeImg = new Image();
+  private _dragState: {
+    kind: 'move' | 'tl' | 'tr' | 'bl' | 'br';
+    startX: number; startY: number;
+    startOverlay: { cx: number; cy: number; w: number; h: number };
+  } | null = null;
+
+  /** Crop overlay in image-fraction coords [0,1]. cx/cy = center, w/h = size. */
+  protected readonly cropOverlay = signal({ cx: 0.5, cy: 0.5, w: 0.75, h: 0.75 });
+
+  @ViewChild('shapeCanvas')
+  set shapeCanvasRef(el: ElementRef<HTMLCanvasElement> | undefined) {
+    this._shapeCanvas.set(el?.nativeElement ?? null);
+  }
 
   /**
    * Tracks whether a "Generate & package" chain is in progress.
@@ -2233,6 +2410,56 @@ export class WizardShellComponent {
         this._autoAdvanced.update(s => { const n = new Set(s); n.add(page); return n; });
         this.selectPage((page + 1) as 0 | 1 | 2 | 3 | 4);
       });
+    });
+
+    // ── Shape canvas effects ──────────────────────────────────────────────
+
+    // Load image whenever imageId changes; signal `_shapeImgLoaded` when done.
+    effect(() => {
+      const imageId = this.session().imageId;
+      untracked(() => {
+        this._shapeImgLoaded.set(false);
+        if (!imageId) return;
+        this._shapeImg = new Image();
+        this._shapeImg.onload = () => this._shapeImgLoaded.set(true);
+        this._shapeImg.src = this.apiClient.blobUrl(imageId);
+      });
+    });
+
+    // Redraw canvas whenever image, shape, or overlay changes.
+    effect(() => {
+      const canvas = this._shapeCanvas();
+      this._shapeImgLoaded(); // subscribe
+      this.cropOverlay();     // subscribe
+      this.targetService.activeShape(); // subscribe
+      if (canvas) this._drawShapeCanvas(canvas);
+    });
+
+    // When target changes, reset overlay to fit target aspect ratio over image.
+    effect(() => {
+      const preset = this.targetService.activePreset();
+      const meta = this.session().sourceMeta;
+      if (!preset || !meta || preset.print_height_mm <= 0) return;
+      untracked(() => {
+        const targetAspect = preset.print_width_mm / preset.print_height_mm;
+        const imageAspect = meta.w / meta.h;
+        let w: number, h: number;
+        if (targetAspect > imageAspect) {
+          w = 0.85; h = 0.85 * imageAspect / targetAspect;
+        } else {
+          h = 0.85; w = 0.85 * targetAspect / imageAspect;
+        }
+        this.cropOverlay.set({ cx: 0.5, cy: 0.5, w: Math.max(0.15, Math.min(0.95, w)), h: Math.max(0.15, Math.min(0.95, h)) });
+      });
+    });
+
+    // Sync auto-crop aspect ratio from overlay dimensions whenever overlay changes.
+    effect(() => {
+      const ov = this.cropOverlay();
+      const meta = this.session().sourceMeta;
+      if (!meta || ov.w <= 0 || ov.h <= 0) return;
+      const aspect = (ov.w * meta.w) / (ov.h * meta.h);
+      untracked(() => this.renderService.patchSettings('input_auto_crop_aspect', aspect));
     });
 
   }
@@ -2540,8 +2767,196 @@ export class WizardShellComponent {
   }
 
   protected nextPage(): void {
+    if (this.ui().wizardPage === 0 && !this.targetService.active()) return;
     const next = Math.min(this.wizardPageLabels.length - 1, this.ui().wizardPage + 1) as 0 | 1 | 2 | 3 | 4;
     this.selectPage(next);
+  }
+
+  protected shapeLabel(shape: string): string {
+    const labels: Record<string, string> = {
+      circle: 'Circle', rectangle: 'Rectangle', hexagon: 'Hexagon',
+      triangle: 'Triangle', donut: 'Donut', shield: 'Shield', path: 'Custom',
+    };
+    return labels[shape] ?? shape;
+  }
+
+  // ── Shape canvas ──────────────────────────────────────────────────────
+
+  private _drawShapeCanvas(canvas: HTMLCanvasElement): void {
+    const meta = this.session().sourceMeta;
+    if (!meta) return;
+
+    const W = Math.min(800, meta.w);
+    const H = Math.round(W * meta.h / meta.w);
+    if (canvas.width !== W) canvas.width = W;
+    if (canvas.height !== H) canvas.height = H;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, W, H);
+
+    if (this._shapeImgLoaded() && this._shapeImg.naturalWidth > 0) {
+      ctx.drawImage(this._shapeImg, 0, 0, W, H);
+    } else {
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    const ov = this.cropOverlay();
+    const pw = W * ov.w;
+    const ph = H * ov.h;
+    const px = W * ov.cx - pw / 2;
+    const py = H * ov.cy - ph / 2;
+    const shape = this.targetService.activeShape() ?? 'rectangle';
+
+    // Dim everything outside the shape.
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'destination-out';
+    this._pathForShape(ctx, shape, px, py, pw, ph);
+    ctx.fill();
+    ctx.restore();
+
+    // Outline the shape.
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 2;
+    this._pathForShape(ctx, shape, px, py, pw, ph);
+    ctx.stroke();
+    ctx.restore();
+
+    // Corner resize handles.
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    for (const [hx, hy] of this._handlePositions(px, py, pw, ph)) {
+      ctx.beginPath();
+      ctx.arc(hx, hy, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private _pathForShape(ctx: CanvasRenderingContext2D, shape: string, x: number, y: number, w: number, h: number): void {
+    ctx.beginPath();
+    switch (shape) {
+      case 'circle':
+      case 'donut':
+        ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+        break;
+      case 'hexagon': {
+        const cx = x + w / 2, cy = y + h / 2, r = Math.min(w, h) / 2;
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i - Math.PI / 6;
+          if (i === 0) ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+          else ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+        }
+        ctx.closePath();
+        break;
+      }
+      case 'triangle':
+        ctx.moveTo(x + w / 2, y);
+        ctx.lineTo(x + w, y + h);
+        ctx.lineTo(x, y + h);
+        ctx.closePath();
+        break;
+      case 'shield': {
+        const r = Math.min(w, h) * 0.15;
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h * 0.6);
+        ctx.lineTo(x + w / 2, y + h);
+        ctx.lineTo(x, y + h * 0.6);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        break;
+      }
+      default:
+        ctx.rect(x, y, w, h);
+    }
+  }
+
+  private _handlePositions(x: number, y: number, w: number, h: number): [number, number][] {
+    return [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+  }
+
+  protected onShapePointerDown(event: PointerEvent): void {
+    const canvas = this._shapeCanvas();
+    if (!canvas) return;
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const mx = (event.clientX - rect.left) * sx;
+    const my = (event.clientY - rect.top) * sy;
+
+    const ov = this.cropOverlay();
+    const W = canvas.width, H = canvas.height;
+    const pw = W * ov.w, ph = H * ov.h;
+    const px = W * ov.cx - pw / 2, py = H * ov.cy - ph / 2;
+    const HIT = 14;
+
+    const corners: [number, number, 'tl' | 'tr' | 'bl' | 'br'][] = [
+      [px, py, 'tl'], [px + pw, py, 'tr'],
+      [px, py + ph, 'bl'], [px + pw, py + ph, 'br'],
+    ];
+    for (const [hx, hy, kind] of corners) {
+      if (Math.hypot(mx - hx, my - hy) < HIT) {
+        canvas.setPointerCapture(event.pointerId);
+        this._dragState = { kind, startX: mx, startY: my, startOverlay: { ...ov } };
+        return;
+      }
+    }
+    if (mx >= px && mx <= px + pw && my >= py && my <= py + ph) {
+      canvas.setPointerCapture(event.pointerId);
+      this._dragState = { kind: 'move', startX: mx, startY: my, startOverlay: { ...ov } };
+    }
+  }
+
+  protected onShapePointerMove(event: PointerEvent): void {
+    if (!this._dragState) return;
+    const canvas = this._shapeCanvas();
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const mx = (event.clientX - rect.left) * sx;
+    const my = (event.clientY - rect.top) * sy;
+    const W = canvas.width, H = canvas.height;
+    const { kind, startX, startY, startOverlay: so } = this._dragState;
+    const dx = (mx - startX) / W;
+    const dy = (my - startY) / H;
+    const MIN = 0.1;
+    let { cx, cy, w, h } = so;
+
+    if (kind === 'move') {
+      cx = Math.max(w / 2, Math.min(1 - w / 2, so.cx + dx));
+      cy = Math.max(h / 2, Math.min(1 - h / 2, so.cy + dy));
+    } else {
+      // Anchor the opposite corner and resize from the dragged corner.
+      const l = so.cx - so.w / 2, r = so.cx + so.w / 2;
+      const t = so.cy - so.h / 2, b = so.cy + so.h / 2;
+      let nl = l, nr = r, nt = t, nb = b;
+      if (kind === 'tl') { nl = Math.min(r - MIN, l + dx); nt = Math.min(b - MIN, t + dy); }
+      if (kind === 'tr') { nr = Math.max(l + MIN, r + dx); nt = Math.min(b - MIN, t + dy); }
+      if (kind === 'bl') { nl = Math.min(r - MIN, l + dx); nb = Math.max(t + MIN, b + dy); }
+      if (kind === 'br') { nr = Math.max(l + MIN, r + dx); nb = Math.max(t + MIN, b + dy); }
+      nl = Math.max(0, nl); nr = Math.min(1, nr);
+      nt = Math.max(0, nt); nb = Math.min(1, nb);
+      w = nr - nl; h = nb - nt;
+      cx = nl + w / 2; cy = nt + h / 2;
+    }
+    this.cropOverlay.set({ cx, cy, w, h });
+  }
+
+  protected onShapePointerUp(_event: PointerEvent): void {
+    this._dragState = null;
   }
 
   protected toggleRightPane(): void {

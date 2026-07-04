@@ -3,6 +3,8 @@ display_name: Signet ring (recessed)
 print_width_mm: 30.0
 print_height_mm: 25.0
 polarity_invert: true
+default_shape: rectangle
+available_shapes: [rectangle, shield]
 heightmap:
   input_clahe: true
   input_clahe_clip: 2.0

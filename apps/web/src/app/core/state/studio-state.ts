@@ -167,6 +167,9 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   dither: false,
   dither_levels: 256,
 
+  // Heightmap enhancement.
+  heightmap_enhance_mode: 'off',
+
   // Refinement passes — opt-in.
   pre_clean_enabled: false,
   photo_tonal_enabled: false,

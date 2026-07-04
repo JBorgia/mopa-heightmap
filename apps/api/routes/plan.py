@@ -18,6 +18,7 @@ async def create_plan(req: PassPlanRequest) -> PassPlanResponse:
             heightmap_id=req.heightmap_id,
             profile_name=req.profile_name,
             settings=req.settings,
+            shape_override=req.shape_override,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -154,6 +154,7 @@ async def export_lbrn2(req: ExportLbrn2Request) -> Response:
             heightmap_id=req.heightmap_id,
             profile_name=req.profile_name,
             subject_mask_id=req.subject_mask_id,
+            shape_override=req.shape_override,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -232,6 +233,7 @@ async def export_bundle(req: ExportBundleRequest) -> Response:
                     # engraving). The standalone subject_mask.png below is for
                     # LightBurn's Trace Image workflow only.
                     subject_mask_id=req.subject_mask_id,
+                    shape_override=req.shape_override,
                 )
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
