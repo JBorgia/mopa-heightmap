@@ -49,9 +49,9 @@ export const HEIGHTMAP_POLARITIES: { label: string; value: 'bright_raised' | 'da
 ];
 
 export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
-  { label: 'BiRefNet (best quality)', value: 'birefnet' },
-  { label: 'RemBG (fast)', value: 'rembg' },
-  { label: 'Threshold (no install needed)', value: 'threshold' },
+  { label: 'High quality — needs GPU', value: 'birefnet' },
+  { label: 'Standard — CPU only', value: 'rembg' },
+  { label: 'Simple — no AI needed', value: 'threshold' },
 ];
 
 @Component({
@@ -136,7 +136,7 @@ export const STUDIO_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     </select>
                   </div>
                   <div class="field">
-                    <label>Edge softness <span class="value-badge">{{ pipeline().mask.edgeSoftness | number:'1.2-2' }}</span></label>
+                    <label>Edge style <span class="value-badge">{{ pipeline().mask.edgeSoftness === 0 ? 'Hard' : pipeline().mask.edgeSoftness < 0.4 ? 'Slight feather' : pipeline().mask.edgeSoftness < 0.7 ? 'Moderate blur' : 'Heavy blur' }}</span></label>
                     <input
                       type="range"
                       min="0"

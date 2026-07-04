@@ -254,11 +254,12 @@ export function deserializeStudioState(raw: string | null): StudioState {
         },
       },
       output: { ...cloneDefaultStudioState().output, ...parsed.output },
-      // Toasts are transient UI state — persisting them means a toast that
-      // was about to auto-dismiss survives the reload (its setTimeout did
-      // not), and an "Upload failed" toast haunts a fresh page-load. Always
-      // start with an empty toast stack regardless of what was persisted.
-      ui: { ...cloneDefaultStudioState().ui, ...parsed.ui, toasts: [] },
+      // Toasts and wizardPage are ephemeral: toasts have dead timeouts after
+      // reload, and wizardPage refers to a step whose server artifacts
+      // (imageId, maskId, heightmapId) are gone after a server restart.
+      // Always reset both. When persistent storage lands (R2/Supabase),
+      // wizardPage can be restored once artifact IDs survive restarts.
+      ui: { ...cloneDefaultStudioState().ui, ...parsed.ui, toasts: [], wizardPage: DEFAULT_WIZARD_PAGE },
     };
   } catch {
     return cloneDefaultStudioState();

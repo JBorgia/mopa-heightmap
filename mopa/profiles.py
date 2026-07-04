@@ -137,7 +137,8 @@ _KNOWN_TOP_LEVEL_KEYS = {
     "print_width_mm",
     "print_height_mm",
     # Export geometry: "circle" clips the engraving to an Ellipse (coin/medallion);
-    # omit or set to "rectangle" for plaques and flat stock.
+    # "hexagon", "triangle", "donut" use polygon-inset masks; "rectangle" / omit
+    # for plaques and flat stock. See mopa/zones.py VALID_SHAPES.
     "shape",
     # Reflective-metal safety fields — used by the wizard pre-flight checklist
     # and the exporter to emit breakthrough.lbrn2.
@@ -145,6 +146,13 @@ _KNOWN_TOP_LEVEL_KEYS = {
     "spray_notes",
     "hardware_setup_notes",
     "breakthrough_pass",
+    # Zone-based multi-layer engraving.
+    # zone_params: per-zone laser overrides (field, border, rim, device, exergue).
+    # zone_geometry: blank geometry overrides (border_width_mm, rim_width_mm, etc.).
+    # zone_boundary_sigma_scale: feathering scale factor (1.0 = 1.5 px base sigma).
+    "zone_params",
+    "zone_geometry",
+    "zone_boundary_sigma_scale",
     "__profile_path__",
 }
 
@@ -362,6 +370,71 @@ def validate_profile(data: Dict[str, Any], profile_path: str = "<memory>") -> No
             recipes_from_profile(data)
         except Exception as exc:  # pragma: no cover - defensive
             errors.append(str(exc))
+
+    # Optional zone_boundary_sigma_scale
+    if "zone_boundary_sigma_scale" in data:
+        val = data["zone_boundary_sigma_scale"]
+        if not isinstance(val, (int, float)) or isinstance(val, bool):
+            errors.append("zone_boundary_sigma_scale must be a number")
+        elif not (0.1 <= float(val) <= 5.0):
+            errors.append(f"zone_boundary_sigma_scale={val} must be in [0.1, 5.0]")
+
+    # Optional zone_geometry block
+    if "zone_geometry" in data:
+        zg = data["zone_geometry"]
+        if not isinstance(zg, dict):
+            errors.append("zone_geometry must be a mapping")
+        else:
+            _ZG_NUMERIC = {
+                "border_width_mm":       (0.0, 20.0),
+                "rim_width_mm":          (0.0, 10.0),
+                "exergue_height_fraction": (0.0, 0.5),
+                "hole_radius_mm":        (0.0, 200.0),
+            }
+            for zk, zv in zg.items():
+                if zk not in _ZG_NUMERIC:
+                    errors.append(f"zone_geometry.{zk} is not a recognised field")
+                    continue
+                lo, hi = _ZG_NUMERIC[zk]
+                if zv is not None and (not isinstance(zv, (int, float)) or isinstance(zv, bool)):
+                    errors.append(f"zone_geometry.{zk} must be a number or null")
+                elif zv is not None and not (lo <= float(zv) <= hi):
+                    errors.append(f"zone_geometry.{zk}={zv} must be in [{lo}, {hi}]")
+
+    # Optional zone_params block
+    if "zone_params" in data:
+        zp = data["zone_params"]
+        if not isinstance(zp, dict):
+            errors.append("zone_params must be a mapping")
+        else:
+            _VALID_ZONES = {"field", "border", "rim", "device", "exergue"}
+            _ZP_NUMERIC = {
+                "speed_mm_s":      (1.0, 10000.0),
+                "power_percent":   (0.0, 100.0),
+                "frequency_khz":   (1.0, 4000.0),
+                "pulse_width_ns":  (1, 1000),
+                "line_interval_mm": (0.001, 1.0),
+                "passes":          (1, 256),
+            }
+            for zone_name, zone_block in zp.items():
+                if zone_name not in _VALID_ZONES:
+                    errors.append(
+                        f"zone_params.{zone_name} is not a recognised zone "
+                        f"(expected one of {sorted(_VALID_ZONES)})"
+                    )
+                    continue
+                if not isinstance(zone_block, dict):
+                    errors.append(f"zone_params.{zone_name} must be a mapping")
+                    continue
+                for pk, pv in zone_block.items():
+                    if pk not in _ZP_NUMERIC:
+                        errors.append(f"zone_params.{zone_name}.{pk} is not a recognised parameter")
+                        continue
+                    lo, hi = _ZP_NUMERIC[pk]
+                    if not isinstance(pv, (int, float)) or isinstance(pv, bool):
+                        errors.append(f"zone_params.{zone_name}.{pk} must be a number")
+                    elif not (lo <= float(pv) <= hi):
+                        errors.append(f"zone_params.{zone_name}.{pk}={pv} must be in [{lo}, {hi}]")
 
     if errors:
         raise ProfileValidationError(profile_path, errors)

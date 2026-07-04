@@ -36,6 +36,12 @@ __all__ = [
     "PASS_KIND_PHOTO_TONAL",
     "PASS_KIND_COLOR_PREFIX",
     "PASS_KIND_SIGNATURE",
+    # Zone pass kinds (multi-layer zone-based engraving)
+    "PASS_KIND_FIELD",
+    "PASS_KIND_BORDER",
+    "PASS_KIND_RIM",
+    "PASS_KIND_DEVICE",
+    "PASS_KIND_EXERGUE",
 ]
 
 
@@ -49,11 +55,27 @@ PASS_KIND_SIGNATURE = "signature"
 # (e.g. ``"color:C03"``).
 PASS_KIND_COLOR_PREFIX = "color:"
 
-# Canonical execution order. Color passes are inserted between FORM and
-# PHOTO_TONAL at plan time. Signature comes last so the corner mark sits
-# on top of everything else.
+# Zone pass kinds — multi-layer coin/token engraving.
+# Fire order: field → border → rim → device → exergue.
+# When zones are enabled, FORM is suppressed; zone:device takes its slot.
+PASS_KIND_FIELD    = "zone:field"
+PASS_KIND_BORDER   = "zone:border"
+PASS_KIND_RIM      = "zone:rim"
+PASS_KIND_DEVICE   = "zone:device"
+PASS_KIND_EXERGUE  = "zone:exergue"
+
+# Canonical execution order. Zone passes sit between pre_clean and photo_tonal;
+# when zones are disabled they are simply skipped (not enabled by default).
+# Color passes are inserted immediately before photo_tonal at plan time.
 DEFAULT_PASS_ORDER: tuple[str, ...] = (
     PASS_KIND_PRE_CLEAN,
+    # Zone passes (opt-in; replace form when profile has zone_params)
+    PASS_KIND_FIELD,
+    PASS_KIND_BORDER,
+    PASS_KIND_RIM,
+    PASS_KIND_DEVICE,
+    PASS_KIND_EXERGUE,
+    # Non-zone depth pass (default path; suppressed when zones are active)
     PASS_KIND_FORM,
     # color passes go here
     PASS_KIND_PHOTO_TONAL,
@@ -153,6 +175,15 @@ _KIND_DEFAULTS: Dict[str, tuple[str, str, tuple[str, ...]]] = {
     PASS_KIND_FORM:        ("C01", "Sculptok depth — 3D-Sliced bitmap.", ()),
     PASS_KIND_PHOTO_TONAL: ("C07", "Photo-derived tonal overlay.", (PASS_KIND_FORM,)),
     PASS_KIND_SIGNATURE:   ("C06", "Vector signature / monogram.", ()),
+    # Zone passes. Color-slot names here are placeholders; service_adapter
+    # substitutes real ColorEntry objects built from zone_params before calling
+    # plan_passes(), so these are only reached when zone entries are injected
+    # into the MaterialProfile. The defaults fall back to card slots C02-C05.
+    PASS_KIND_FIELD:    ("C02", "Zone field — annealing sweep.", ()),
+    PASS_KIND_BORDER:   ("C03", "Zone border — decorative band.", (PASS_KIND_FIELD,)),
+    PASS_KIND_RIM:      ("C04", "Zone rim — outermost raised ring.", (PASS_KIND_FIELD,)),
+    PASS_KIND_DEVICE:   ("C01", "Zone device — subject ablation.", ()),
+    PASS_KIND_EXERGUE:  ("C05", "Zone exergue — bottom text strip.", (PASS_KIND_DEVICE,)),
 }
 
 

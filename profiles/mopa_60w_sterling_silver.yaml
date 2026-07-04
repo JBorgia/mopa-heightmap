@@ -76,3 +76,45 @@ lightburn_starting_point:
   passes: 256
   angle_increment: 45
   cleanup_every_passes: 18
+
+# --- Zone-based engraving (opt-in; requires zone_params in request) --------
+# zone:device reuses lightburn_starting_point so subject ablation stays at
+# the calibrated silver 3D-sculpt parameters. field uses high-speed annealing
+# to colour the background without removing material.
+zone_boundary_sigma_scale: 1.0
+
+zone_geometry:
+  border_width_mm: 1.5
+  rim_width_mm: 0.5
+  exergue_height_fraction: 0.18
+
+zone_params:
+  field:
+    speed_mm_s: 2100
+    power_percent: 32
+    frequency_khz: 100
+    pulse_width_ns: 185
+    line_interval_mm: 0.02
+    passes: 2
+  border:
+    speed_mm_s: 1200
+    power_percent: 40
+    frequency_khz: 80
+    pulse_width_ns: 180
+    line_interval_mm: 0.02
+    passes: 4
+  rim:
+    speed_mm_s: 1500
+    power_percent: 28
+    frequency_khz: 80
+    pulse_width_ns: 185
+    line_interval_mm: 0.02
+    passes: 2
+  # device intentionally absent — falls back to lightburn_starting_point
+  exergue:
+    speed_mm_s: 800
+    power_percent: 70
+    frequency_khz: 60
+    pulse_width_ns: 130
+    line_interval_mm: 0.015
+    passes: 128

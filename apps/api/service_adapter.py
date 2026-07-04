@@ -50,7 +50,23 @@ from mopa.lightburn_cards import (
     load_lightburn_card,
 )
 from mopa.lbrn_writer import build_lbrn_tree, ShapeRef
-from mopa.stages import plan_passes as _plan_passes
+from mopa.stages import (
+    plan_passes as _plan_passes,
+    PASS_KIND_FIELD,
+    PASS_KIND_BORDER,
+    PASS_KIND_RIM,
+    PASS_KIND_DEVICE,
+    PASS_KIND_EXERGUE,
+    PASS_KIND_FORM,
+    EngravingPass,
+    PassPlan,
+)
+from mopa.zones import (
+    zone_masks_from_geometry,
+    zone_hm_for_pass,
+    entries_from_zone_params,
+    VALID_SHAPES,
+)
 
 from . import blob_store
 from .schemas import (
@@ -479,12 +495,18 @@ def do_export_lbrn2(
         and box_w is not None and box_h is not None
     )
 
+    # Detect zone plan: any zone pass kind present → zone compositing path.
+    _ZONE_KINDS = frozenset({PASS_KIND_FIELD, PASS_KIND_BORDER, PASS_KIND_RIM, PASS_KIND_DEVICE, PASS_KIND_EXERGUE})
+    is_zone_plan = any(ep.kind in _ZONE_KINDS for ep in plan.passes)
+
     # Bake subject mask into the heightmap array before any per-pass PNG is
     # computed. This is the only guarantee that background pixels don't fire
     # on the laser — a non-engraving .lbrn2 layer (the old M-layer) provided
     # no such guarantee because it didn't touch the depth data.
     # Coin profiles skip baking: the Ellipse MaskID handles geometric clipping.
-    if subject_mask_id is not None and not add_coin_circle:
+    # Zone plans skip global baking too — each zone pass composites independently
+    # via zone_hm_for_pass(), and the device zone receives the mask directly.
+    if subject_mask_id is not None and not add_coin_circle and not is_zone_plan:
         _mask_arr = blob_store.load_heightmap(subject_mask_id)
         if _mask_arr is not None:
             if _mask_arr.shape != (px_h, px_w):
@@ -495,6 +517,24 @@ def do_export_lbrn2(
                 _mask_arr = np.asarray(_mask_pil, dtype=np.float32) / 255.0
             hm = _apply_subject_mask_to_heightmap(hm, _mask_arr)
 
+    # For zone plans, load the subject mask as the device zone mask.
+    # The stored ep.mask for zone:device is an all-ones placeholder; we swap
+    # it here for the actual subject silhouette so only the subject ablates.
+    # For zone:field, the device mask is subtracted so the field pass never
+    # fires over the subject area (would double-ablate at field parameters).
+    device_mask: Optional[np.ndarray] = None
+    if is_zone_plan and subject_mask_id is not None:
+        _dev_raw = blob_store.load_heightmap(subject_mask_id)
+        if _dev_raw is not None:
+            if _dev_raw.shape != (px_h, px_w):
+                _dev_pil = Image.fromarray(
+                    (np.clip(_dev_raw, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8),
+                    mode="L",
+                ).resize((px_w, px_h), Image.LANCZOS)
+                device_mask = np.asarray(_dev_pil, dtype=np.float32) / 255.0
+            else:
+                device_mask = _dev_raw
+
     # Materialise per-pass PNGs into a scratch dir, then zip them up with
     # the project. Scratch dir is cleaned up before this function returns.
     bundle_dir = Path(tempfile.mkdtemp(prefix="mopa_lbrn2_"))
@@ -504,8 +544,21 @@ def do_export_lbrn2(
         for idx, ep in enumerate(plan.passes):
             png_name = f"pass_{idx:02d}_{ep.kind.replace(':', '_')}.png"
             png_path = bundle_dir / png_name
-            mask = ep.mask.astype(np.float32, copy=False)
-            layer = np.clip(1.0 - (1.0 - hm) * mask, 0.0, 1.0).astype(np.float32)
+            if ep.kind in _ZONE_KINDS:
+                # Zone compositing: raise out-of-zone pixels to 1.0 (no engraving)
+                # then apply bilateral filter to suppress seam halos.
+                if ep.kind == PASS_KIND_DEVICE:
+                    # Subject mask overrides the all-ones placeholder stored in ep.mask.
+                    eff_mask = device_mask if device_mask is not None else np.ones((px_h, px_w), dtype=np.float32)
+                elif ep.kind == PASS_KIND_FIELD and device_mask is not None:
+                    # Prevent field pass from double-ablating over the device area.
+                    eff_mask = np.clip(ep.mask.astype(np.float32, copy=False) * (1.0 - device_mask), 0.0, 1.0)
+                else:
+                    eff_mask = ep.mask.astype(np.float32, copy=False)
+                layer = zone_hm_for_pass(hm, eff_mask)
+            else:
+                mask = ep.mask.astype(np.float32, copy=False)
+                layer = np.clip(1.0 - (1.0 - hm) * mask, 0.0, 1.0).astype(np.float32)
             # Flip vertically: LightBurn's Y axis is downward (top = y=0);
             # the heightmap is stored top-row-first which renders upside-down
             # on the bed. flipud corrects the engraving to match the original photo.
@@ -753,6 +806,101 @@ def get_plan(plan_id: str) -> Optional[Any]:
         return _plans.get(plan_id)
 
 
+def _build_zone_passes(
+    hm: np.ndarray,
+    profile_payload: Dict[str, Any],
+    material_profile: Any,
+) -> Optional[List[EngravingPass]]:
+    """Build zone EngravingPass objects when the profile has zone_params.
+
+    Returns None when zones are not configured or geometry is missing.
+    The device zone gets an all-ones mask (placeholder); the real subject
+    mask is applied per-pixel at export time.
+    """
+    zone_params = profile_payload.get("zone_params")
+    if not zone_params:
+        return None
+
+    box_w = profile_payload.get("print_width_mm")
+    box_h = profile_payload.get("print_height_mm")
+    if not (isinstance(box_w, (int, float)) and isinstance(box_h, (int, float))):
+        return None
+
+    px_h, px_w = hm.shape
+    box_w, box_h = float(box_w), float(box_h)
+    scale = min(box_w / px_w, box_h / px_h)
+    px_per_mm = 1.0 / scale
+
+    shape = str(profile_payload.get("shape", "rectangle"))
+    if shape not in VALID_SHAPES:
+        shape = "rectangle"
+
+    zone_geo = profile_payload.get("zone_geometry") or {}
+    sigma_scale = float(profile_payload.get("zone_boundary_sigma_scale", 1.0))
+
+    geo = zone_masks_from_geometry(
+        px_h, px_w,
+        shape=shape,
+        print_w_mm=box_w,
+        print_h_mm=box_h,
+        px_per_mm=px_per_mm,
+        border_width_mm=float(zone_geo.get("border_width_mm", 1.5)),
+        rim_width_mm=float(zone_geo.get("rim_width_mm", 0.5)),
+        exergue_height_fraction=float(zone_geo.get("exergue_height_fraction", 0.18)),
+        hole_radius_mm=zone_geo.get("hole_radius_mm"),
+        sigma_scale=sigma_scale,
+    )
+
+    starting = profile_payload.get("lightburn_starting_point") or {}
+    cleanup = starting.get("cleanup_every_passes")
+    zone_entries = entries_from_zone_params(
+        zone_params, starting, cleanup_every_passes=cleanup
+    )
+
+    _ZONE_KIND_ORDER = [
+        PASS_KIND_FIELD,
+        PASS_KIND_BORDER,
+        PASS_KIND_RIM,
+        PASS_KIND_DEVICE,
+        PASS_KIND_EXERGUE,
+    ]
+    _ZONE_GEO_KEY = {
+        PASS_KIND_FIELD:   "field",
+        PASS_KIND_BORDER:  "border",
+        PASS_KIND_RIM:     "rim",
+        PASS_KIND_DEVICE:  None,     # all-ones; subject mask applied at export
+        PASS_KIND_EXERGUE: "exergue",
+    }
+    _ZONE_NOTES = {
+        PASS_KIND_FIELD:   "Annealing sweep — field background.",
+        PASS_KIND_BORDER:  "Border band — decorative ring.",
+        PASS_KIND_RIM:     "Rim — outermost raised edge.",
+        PASS_KIND_DEVICE:  "Device — subject ablation (fires last).",
+        PASS_KIND_EXERGUE: "Exergue — bottom text strip.",
+    }
+
+    passes: List[EngravingPass] = []
+    for kind in _ZONE_KIND_ORDER:
+        entry = zone_entries.get(kind)
+        if entry is None:
+            continue
+        geo_key = _ZONE_GEO_KEY[kind]
+        if geo_key is not None:
+            mask = geo[geo_key]
+        else:
+            mask = np.ones((px_h, px_w), dtype=np.float32)
+        passes.append(EngravingPass(
+            id=kind,
+            kind=kind,
+            name=entry.name,
+            mask=mask,
+            cut_setting=entry,
+            enabled=True,
+            note=_ZONE_NOTES[kind],
+        ))
+    return passes or None
+
+
 def do_plan(
     image_id: str,
     heightmap_id: str,
@@ -765,6 +913,9 @@ def do_plan(
     (color clusters, photo-tonal, signature, pre-clean) are opt-in. Color
     masks are computed with LAB k-means on the source image when
     ``settings.n_color_passes`` is set (defaults to 0 = monochrome stack).
+
+    When the profile contains ``zone_params``, zone passes replace the
+    ``form`` pass: field → border → rim → device → exergue in fire order.
     """
     from mopa.color_quantize import color_masks_for_planner, quantize_to_color_masks
 
@@ -790,6 +941,12 @@ def do_plan(
         user_toggles["photo_tonal"] = bool(getattr(settings, "photo_tonal_enabled", False))
         user_toggles["signature"]   = bool((getattr(settings, "signature_text", "") or "").strip())
 
+    # Build zone passes when the profile defines zone_params.
+    zone_passes = _build_zone_passes(hm, profile_payload, material_profile)
+    if zone_passes:
+        # Zones replace the form pass — disable it.
+        user_toggles[PASS_KIND_FORM] = False
+
     result = _plan_passes(
         heightmap=hm,
         profile=material_profile,
@@ -797,10 +954,18 @@ def do_plan(
         mask_per_color=color_masks,
         kind_color_overrides=_profile_kind_color_overrides(profile_payload),
     )
-    plan_id = store_plan(result)
 
-    n = len(result.passes)
-    per_pass_depth = 0.0  # depth_um set by LightBurn cut settings, not service
+    if zone_passes:
+        # Inject zone passes in fire order between pre_clean and photo_tonal/signature.
+        pre_clean = [p for p in result.passes if p.kind == "pre_clean"]
+        refinement = [p for p in result.passes if p.kind not in (
+            "pre_clean", PASS_KIND_FORM,
+        )]
+        merged = tuple(pre_clean + zone_passes + refinement)
+        result = PassPlan(profile=result.profile, passes=merged)
+
+    plan_id = store_plan(result)
+    per_pass_depth = 0.0
 
     entries = [
         PassEntry(

@@ -46,7 +46,7 @@ export const WIZARD_PAGE_OPTIONAL = [false, true, false, false, false] as const;
 
 export const WIZARD_STAGE_SUMMARIES = [
   'Upload a photo of the subject you want to engrave.',
-  'Optional — produce a subject mask deliverable. LightBurn applies it at engrave time, so you can skip this step entirely if you only need the heightmap.',
+  'Optional — cut the subject out from its background. The cutout ships in your LightBurn project to limit the laser to the subject silhouette only. Skip this if you are engraving the full image.',
   'Load a heightmap source (sculptok or your own PNG), optionally clean the photo before sculptok sees it, and pick refinement layers to ship in the bundle.',
   'Choose a material profile. The pass plan computes automatically when both the heightmap and a profile are ready.',
   'Review your settings and export the finished heightmap or pass file.',
@@ -56,9 +56,9 @@ export const WIZARD_DEFAULT_SPLITTER_SIZES = [68, 32] as const;
 export const WIZARD_COLLAPSED_SPLITTER_SIZES = [100, 0] as const;
 export const WIZARD_HISTORY_PREVIEW_LIMIT = 8;
 export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
-  { label: 'BiRefNet (best quality)', value: 'birefnet' },
-  { label: 'Rembg (fast)', value: 'rembg' },
-  { label: 'Threshold (no install needed)', value: 'threshold' },
+  { label: 'High quality — needs GPU', value: 'birefnet' },
+  { label: 'Standard — CPU only', value: 'rembg' },
+  { label: 'Simple — no AI needed', value: 'threshold' },
 ];
 
 @Component({
@@ -228,14 +228,14 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                 <h2>{{ wizardPageLabels[1] }} <span class="step-tag">optional</span></h2>
                 <p>{{ stageSummaries[1] }}</p>
                 @if (!session().imageId) {
-                  <p class="muted">Upload an image first (step 1) to enable the mask backend.</p>
+                  <p class="muted">Upload an image first (step 1) to enable the cutout.</p>
                 }
                 <div class="wizard-controls">
                   <div class="control-group">
                     <label for="wiz-mask-backend">
-                      Mask backend
-                      <app-info-tip label="Mask backend"
-                        text="Which algorithm separates the subject from the background. BiRefNet gives the cleanest edges but needs PyTorch + CUDA. Rembg is fast and CPU-friendly. Threshold uses simple luminance and works without any ML deps — fine for high-contrast photos."></app-info-tip>
+                      Cutout method
+                      <app-info-tip label="Cutout method"
+                        text="Which algorithm separates the subject from its background. High quality uses a neural network and needs a GPU. Standard is slower but runs on any machine. Simple uses brightness contrast — fast, no AI, works well for high-contrast photos on a plain background."></app-info-tip>
                     </label>
                     <select
                       id="wiz-mask-backend"
@@ -249,9 +249,9 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   </div>
                   <div class="control-group">
                     <label for="wiz-edge-softness">
-                      Edge softness: {{ pipeline().mask.edgeSoftness }}
-                      <app-info-tip label="Edge softness"
-                        text="How much to feather the mask boundary (0 = hard cut, 1 = heavy blur). Soft edges blend the subject into a procedural background; hard edges keep the silhouette crisp for vector cuts."></app-info-tip>
+                      Edge style: {{ pipeline().mask.edgeSoftness === 0 ? 'Hard' : pipeline().mask.edgeSoftness < 0.4 ? 'Slight feather' : pipeline().mask.edgeSoftness < 0.7 ? 'Moderate blur' : 'Heavy blur' }}
+                      <app-info-tip label="Edge style"
+                        text="How sharply the cutout edge is defined. Hard keeps a crisp silhouette — best for vector cuts and coin designs. Feathered blends the edge into the background — useful when compositing onto a patterned field."></app-info-tip>
                     </label>
                     <input
                       id="wiz-edge-softness"
@@ -285,8 +285,8 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       </p>
                       @if (pipeline().mask.backend !== 'threshold') {
                         <p class="muted small disabled-hint">
-                          Click-refine uses flood-fill and requires the <strong>Threshold</strong> backend.
-                          Switch backends above to enable these shortcuts.
+                          Click-refine uses flood-fill and requires the <strong>Simple</strong> cutout method.
+                          Switch the cutout method above to enable these shortcuts.
                         </p>
                       }
                       <div class="control-actions">
