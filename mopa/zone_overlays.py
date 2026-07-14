@@ -505,6 +505,123 @@ def laurel_wreath_overlay(
 
 
 # ---------------------------------------------------------------------------
+# Export-time pattern layers
+# ---------------------------------------------------------------------------
+
+def zone_pattern_layer(
+    zone: str,
+    settings: Dict[str, Any],
+    h: int,
+    w: int,
+    *,
+    print_w_mm: float,
+    print_h_mm: float,
+) -> Optional[np.ndarray]:
+    """Standalone decorative relief for one zone pass at export time.
+
+    Unlike :func:`apply_zone_overlays` (which bakes patterns into the master
+    heightmap for previewing), this builds the pattern as its OWN engraving
+    layer so the exported .lbrn2 zone pass carries the actual relief — even
+    when the stored heightmap was rendered before the patterns were chosen.
+
+    ``zone`` is ``"field" | "border" | "rim"``.  Returns a float32 (h, w)
+    layer in [0, 1] (1 = surface / no engrave) or ``None`` when no pattern
+    is configured for that zone — callers then fall back to masking the
+    sculpt heightmap.  The caller composites the layer against white using
+    the zone mask, so out-of-zone values here don't need to be exact.
+
+    The layer uses the FULL grayscale range (deepest pattern point = 0.0):
+    physical relief depth is set by the zone pass's numPasses, which the
+    planner scales by the pattern's depth slider. Pre-scaling the pixels
+    too would apply the depth twice.
+    """
+    if print_w_mm <= 0 or print_h_mm <= 0:
+        return None
+
+    cx, cy = w / 2.0, h / 2.0
+    px_per_mm = min(w / print_w_mm, h / print_h_mm)
+    border_width_mm = float(settings.get("zone_border_width_mm", 1.5))
+    rim_width_mm = float(settings.get("zone_rim_width_mm", 0.5))
+    outer_r_px = min(print_w_mm, print_h_mm) / 2.0 * px_per_mm
+    rim_width_px = rim_width_mm * px_per_mm
+    border_width_px = border_width_mm * px_per_mm
+
+    if zone == "field":
+        name = str(settings.get("field_pattern", "none")).lower()
+        if name == "none":
+            return None
+        from .backgrounds import generate_pattern
+        try:
+            overlay = generate_pattern(
+                name, w, h,
+                scale=float(settings.get("field_pattern_scale", 1.0)),
+                angle=float(settings.get("field_pattern_angle", 0.0)),
+                seed=int(settings.get("background_seed", 0)),
+            )
+        except KeyError:
+            return None
+        return np.clip(overlay, 0.0, 1.0).astype(np.float32)
+
+    if zone == "rim":
+        name = str(settings.get("rim_pattern", "none")).lower()
+        common = dict(cx=cx, cy=cy, outer_r_px=outer_r_px, rim_width_px=rim_width_px)
+        if name == "beaded":
+            overlay = beaded_rim_overlay(
+                h, w, **common,
+                bead_count=int(settings.get("rim_bead_count", 72)), bead_depth=1.0,
+            )
+        elif name == "reeded":
+            overlay = reeded_rim_overlay(
+                h, w, **common,
+                reed_count=int(settings.get("rim_reed_count", 120)), reed_depth=1.0,
+            )
+        elif name in ("denticled", "rope", "serrated"):
+            fn = {"denticled": denticled_rim_overlay,
+                  "rope": rope_rim_overlay,
+                  "serrated": serrated_rim_overlay}[name]
+            overlay = fn(
+                h, w, **common,
+                element_count=int(settings.get("rim_element_count", 96)), depth=1.0,
+            )
+        else:
+            return None
+        return np.clip(overlay, 0.0, 1.0).astype(np.float32)
+
+    if zone == "border":
+        name = str(settings.get("border_pattern", "none")).lower()
+        common = dict(
+            cx=cx, cy=cy, outer_r_px=outer_r_px,
+            rim_width_px=rim_width_px, border_width_px=border_width_px,
+        )
+        if name == "rope_twist":
+            overlay = rope_twist_overlay(
+                h, w, **common,
+                strand_count=int(settings.get("border_strand_count", 2)),
+                twist_periods=int(settings.get("border_twist_periods", 40)),
+            )
+        elif name == "acanthus_wave":
+            overlay = acanthus_wave_overlay(
+                h, w, **common,
+                leaf_count=int(settings.get("border_leaf_count", 12)),
+            )
+        elif name == "greek_key":
+            overlay = greek_key_overlay(
+                h, w, **common,
+                key_count=int(settings.get("border_key_count", 24)),
+            )
+        elif name == "laurel":
+            overlay = laurel_wreath_overlay(
+                h, w, **common,
+                leaf_count=int(settings.get("border_leaf_count", 36)),
+            )
+        else:
+            return None
+        return np.clip(overlay, 0.0, 1.0).astype(np.float32)
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Composite engine
 # ---------------------------------------------------------------------------
 

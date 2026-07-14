@@ -125,6 +125,103 @@ def test_field_pattern_spares_subject_when_alpha_given():
     assert (protected[~inside] != 0.5).sum() > 100
 
 
+# ----------------------------------------------------------- export-time layers
+
+def test_zone_pattern_layer_builds_relief_per_zone():
+    from mopa.zone_overlays import zone_pattern_layer
+    settings = {
+        "zone_border_width_mm": 3.0, "zone_rim_width_mm": 1.5,
+        "field_pattern": "basket_weave",
+        "border_pattern": "greek_key",
+        "rim_pattern": "beaded",
+    }
+    for zone in ("field", "border", "rim"):
+        layer = zone_pattern_layer(zone, settings, H, W, print_w_mm=30.0, print_h_mm=30.0)
+        assert layer is not None, zone
+        assert layer.shape == (H, W)
+        assert layer.max() - layer.min() > 0.3, f"{zone} layer is flat"
+
+
+def test_zone_pattern_layer_none_when_unconfigured():
+    from mopa.zone_overlays import zone_pattern_layer
+    for zone in ("field", "border", "rim"):
+        assert zone_pattern_layer(zone, {}, H, W, print_w_mm=30.0, print_h_mm=30.0) is None
+
+
+def test_mask_from_heightmap_extracts_subject():
+    from mopa.zones import mask_from_heightmap
+    hm = np.zeros((200, 200), dtype=np.float32)  # flat black background
+    hm[60:140, 60:140] = 0.8                     # raised subject block
+    mask = mask_from_heightmap(hm)
+    assert mask is not None
+    assert mask[100, 100] > 0.9
+    assert mask[10, 10] < 0.1
+    # Coverage ≈ the block's area.
+    assert 0.1 < float(mask.mean()) < 0.3
+
+
+def test_mask_from_heightmap_rejects_unflat_background():
+    from mopa.zones import mask_from_heightmap
+    rng = np.random.default_rng(1)
+    hm = rng.uniform(0, 1, (200, 200)).astype(np.float32)  # noise everywhere
+    assert mask_from_heightmap(hm) is None
+
+
+def test_decorated_zones_sculpt_at_scaled_pass_counts():
+    """A zone with a pattern selected must engrave REAL relief: device
+    parameters with numPasses scaled by the pattern depth slider — not the
+    profile's 2-pass anneal (that's a tinted stencil, not 3D)."""
+    import io as _io
+    import re as _re
+    import zipfile as _zipfile
+    from fastapi.testclient import TestClient
+    from apps.api.main import app
+
+    client = TestClient(app)
+    rng = np.random.default_rng(5)
+    photo = rng.uniform(60, 200, (200, 200, 3)).astype(np.uint8)
+    buf = io.BytesIO(); Image.fromarray(photo).save(buf, format="PNG")
+    image_id = client.post("/upload", files={"file": ("p.png", buf.getvalue(), "image/png")}).json()["image_id"]
+
+    hm = np.zeros((200, 200), dtype=np.float32)
+    hm[60:140, 60:140] = 0.8
+    buf = io.BytesIO(); Image.fromarray((hm * 65535).astype(np.uint16)).save(buf, format="PNG")
+    hm_path = client.post("/upload/heightmap", files={"file": ("h.png", buf.getvalue(), "image/png")}).json()["heightmap_path"]
+
+    settings = {
+        "external_heightmap_path": hm_path, "heightmap_enhance_mode": "off",
+        "zone_width_mm": 60.0, "zone_height_mm": 60.0, "zone_shape": "circle",
+        "field_pattern": "guilloche", "field_pattern_depth": 0.5,
+        "border_pattern": "greek_key", "border_pattern_depth": 0.75,
+    }
+    r = client.post("/render", json={"image_id": image_id, "settings": settings,
+                                     "profile_name": "mopa_60w_brass"})
+    assert r.status_code == 200, r.text
+    plan = client.post("/plan", json={"image_id": image_id, "heightmap_id": r.json()["heightmap_id"],
+                                      "profile_name": "mopa_60w_brass", "settings": settings,
+                                      "shape_override": "circle"}).json()
+    exp = client.post("/export/lbrn2", json={"plan_id": plan["plan_id"],
+                                             "heightmap_id": r.json()["heightmap_id"],
+                                             "profile_name": "mopa_60w_brass",
+                                             "shape_override": "circle"})
+    assert exp.status_code == 200, exp.text
+    xml = _zipfile.ZipFile(_io.BytesIO(exp.content)).read("project.lbrn2").decode()
+
+    def layer(name):
+        m = _re.search(rf'<name Value="{name}"/>(.*?)</CutSetting_Img>', xml, _re.S)
+        assert m, f"layer {name} missing"
+        return m.group(1)
+
+    # Brass sculpt = 2000 mm/s @ 512 passes. Field 0.5 → 256, border 0.75 → 384.
+    fld = layer("ZoneField")
+    assert '<numPasses Value="256"/>' in fld and '<speed Value="2000"/>' in fld
+    brd = layer("ZoneBorder")
+    assert '<numPasses Value="384"/>' in brd and '<speed Value="2000"/>' in brd
+    # Rim has NO pattern selected → keeps the profile's anneal parameters.
+    rim = layer("ZoneRim")
+    assert '<numPasses Value="2"/>' in rim and '<speed Value="1800"/>' in rim
+
+
 # ----------------------------------------------------------- /render mask_id
 
 def test_render_reuses_wizard_mask_id():

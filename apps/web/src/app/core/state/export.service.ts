@@ -59,6 +59,8 @@ export class ExportService {
         subject_mask_id:
           state.pipeline.mask.maskId ?? state.output.renderMaskId ?? undefined,
         shape_override: this._shapeOverride(state),
+        // Clean (pre-pattern) heightmap for the zone:device layer.
+        clean_heightmap_id: state.output.cleanHeightmapId ?? undefined,
       })
       .subscribe({
         next: (blob) => {
@@ -135,6 +137,7 @@ export class ExportService {
         // user explicitly intended to ship as the deliverable.
         subject_mask_id: userMaskId ?? renderMaskId,
         shape_override: this._shapeOverride(state),
+        clean_heightmap_id: state.output.cleanHeightmapId ?? undefined,
       })
       .subscribe({
         next: (blob) => {

@@ -190,6 +190,11 @@ class RenderResponse(BaseModel):
     # background pattern with no subject mask). Shown as toasts in the UI.
     warnings: List[str] = []
 
+    # Heightmap BEFORE zone overlays were baked in — pass to /export/lbrn2
+    # as clean_heightmap_id so the device layer engraves the clean sculpt.
+    # None when no overlays were applied.
+    clean_heightmap_id: Optional[str] = None
+
 
 # ---------------------------------------------------------------------------
 # Mask
@@ -251,6 +256,10 @@ class ExportLbrn2Request(BaseModel):
     plan_id: str
     heightmap_id: str
     profile_name: Optional[str] = None
+    # Pre-overlay heightmap (RenderResponse.clean_heightmap_id). Zone plans
+    # engrave this on zone:device so baked-in decorative patterns aren't
+    # burned a second time on top of their own zone layers.
+    clean_heightmap_id: Optional[str] = None
     # When provided, baked into the depth heightmap before per-pass PNGs are
     # computed (background pixels raised to 1.0 = no engraving). Not emitted
     # as a .lbrn2 layer — LightBurn can only clip via vector shapes, not raster.
@@ -291,6 +300,7 @@ class ExportBundleRequest(BaseModel):
     sculptok_input_id: Optional[str] = None     # post-prep photo uploaded to sculptok
     subject_mask_id: Optional[str] = None       # subject mask (deliverable)
     shape_override: Optional[str] = None
+    clean_heightmap_id: Optional[str] = None    # pre-overlay heightmap for zone:device
 
 
 # ---------------------------------------------------------------------------

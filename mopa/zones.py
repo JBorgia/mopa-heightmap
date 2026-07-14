@@ -254,18 +254,25 @@ def zone_masks_from_geometry(
         border_mask = in_border.astype(np.float32)
 
     # ------------------------------------------------------------------
-    # Field = outer minus rim minus border
+    # Interior = outer minus rim minus border (shared by field + exergue)
     # ------------------------------------------------------------------
-    field_mask = np.clip(outer_mask - rim_mask - border_mask, 0.0, 1.0)
+    interior_mask = np.clip(outer_mask - rim_mask - border_mask, 0.0, 1.0)
 
     # ------------------------------------------------------------------
-    # Exergue: bottom fraction of bounding-box height — shape-agnostic
-    # Suppressed for donut (no sensible text strip on a ring).
+    # Exergue: bottom fraction of bounding-box height — shape-agnostic,
+    # confined INSIDE the border/rim rings (a text strip never overprints
+    # the decorative bands). Suppressed for donut.
     # ------------------------------------------------------------------
     exergue_y0 = int(h * (1.0 - exergue_height_fraction))
     exergue_mask = np.zeros((h, w), dtype=np.float32)
     if shape != "donut":
-        exergue_mask[exergue_y0:, :] = outer_mask[exergue_y0:, :]
+        exergue_mask[exergue_y0:, :] = interior_mask[exergue_y0:, :]
+
+    # ------------------------------------------------------------------
+    # Field = interior minus exergue — zones must be mutually exclusive
+    # or the field and exergue passes double-engrave the bottom strip.
+    # ------------------------------------------------------------------
+    field_mask = np.clip(interior_mask - exergue_mask, 0.0, 1.0)
 
     # ------------------------------------------------------------------
     # Feather all masks
@@ -307,6 +314,51 @@ def zone_hm_for_pass(
         pass
 
     return result
+
+
+def mask_from_heightmap(
+    heightmap: np.ndarray,
+    *,
+    bg_tol: float = 0.03,
+    feather_px: int = 3,
+) -> Optional[np.ndarray]:
+    """Derive a subject/device mask from the heightmap itself.
+
+    Sculptok reliefs sit on a flat background (the border-median level);
+    any pixel that departs from it is subject. This beats photo-inference
+    masks (rembg/birefnet) for drawings and engravings where the "subject"
+    is line art the photo models segment poorly.
+
+    Returns a float32 (H, W) mask in [0, 1] (1 = subject), or ``None``
+    when the derivation is degenerate (background not flat / coverage
+    outside 1–95 %) so callers can fall back to a photo mask.
+    """
+    hm = heightmap.astype(np.float32, copy=False)
+    border = np.concatenate([hm[0, :], hm[-1, :], hm[:, 0], hm[:, -1]])
+    bg = float(np.median(border))
+    # Background must actually be flat — otherwise this heightmap wasn't
+    # background-flattened and thresholding would slice through relief.
+    if float(np.abs(border - bg).mean()) > bg_tol * 2:
+        return None
+
+    mask = (np.abs(hm - bg) > bg_tol).astype(np.float32)
+    coverage = float(mask.mean())
+    if coverage < 0.01 or coverage > 0.95:
+        return None
+
+    try:
+        import cv2
+        # Close pinholes inside the subject, drop speckle outside, then
+        # feather the boundary so the device/field seam doesn't ring.
+        kernel = np.ones((5, 5), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        if feather_px > 0:
+            k = feather_px * 2 + 1
+            mask = cv2.GaussianBlur(mask, (k, k), 0)
+    except ImportError:
+        pass
+    return np.clip(mask, 0.0, 1.0).astype(np.float32)
 
 
 def entries_from_zone_params(

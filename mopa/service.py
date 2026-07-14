@@ -175,6 +175,11 @@ class PreviewResult:
     subject_alpha: np.ndarray | None = None  # (H, W) float32 in [0,1] when computed
     conditioned: Image.Image | None = None   # photo after pre-sculptok prep + composite
     warnings: list[str] = field(default_factory=list)  # user-facing skipped-feature notices
+    # Heightmap BEFORE zone overlays were baked in. The layered .lbrn2
+    # export uses this for the zone:device pass so the decorative patterns
+    # (which get their own layers) aren't engraved twice. None when no
+    # overlays were applied (then `heightmap` is already clean).
+    heightmap_clean: np.ndarray | None = None
 
 
 @dataclass
@@ -379,14 +384,6 @@ class HeightmapService:
                 f"Zone overlays ({', '.join(zone_patterns)}) were skipped: "
                 "blank size is not set. Enter the blank width and height in mm."
             )
-        field_active = str(settings.get("field_pattern", "none") or "none").lower() != "none"
-        if field_active and zone_w > 0.0 and zone_h > 0.0 and subject_alpha is None:
-            warnings.append(
-                "Field pattern will engrave over the subject relief: no subject "
-                "cutout is available to protect it. Enable the subject mask so "
-                "the pattern fills only the background."
-            )
-
         # Heightmap source — must be supplied. Sculptok auto-pull writes
         # a temp file and sets this path; users with their own heightmap
         # set it directly.
@@ -418,13 +415,43 @@ class HeightmapService:
 
         # Zone overlays — field / rim / border patterns composited into
         # the heightmap post-enhancement. No-op when zone_width_mm == 0.
+        # The pre-overlay copy is kept so the layered .lbrn2 export can
+        # engrave the clean sculpt on zone:device while the patterns live
+        # in their own zone layers.
+        #
+        # Subject protection for the field pattern: prefer the photo mask,
+        # otherwise derive a silhouette from the heightmap itself (sculptok
+        # reliefs sit on a flat background). Only warn when neither works.
         from .zone_overlays import apply_zone_overlays
-        heightmap = apply_zone_overlays(heightmap, dict(settings), subject_alpha=subject_alpha)
+        from .zones import mask_from_heightmap
+        heightmap_clean: np.ndarray | None = None
+        field_active = str(settings.get("field_pattern", "none") or "none").lower() != "none"
+        zone_overlays_active = (
+            zone_w > 0.0 and zone_h > 0.0
+            and (zone_patterns or field_active)
+        )
+        if zone_overlays_active:
+            heightmap_clean = heightmap.copy()
+            overlay_alpha = subject_alpha
+            if overlay_alpha is None and field_active:
+                overlay_alpha = mask_from_heightmap(heightmap)
+                if overlay_alpha is None:
+                    warnings.append(
+                        "Field pattern will engrave over the subject relief: no "
+                        "subject cutout is available and the heightmap background "
+                        "is not flat enough to derive one. Enable the subject mask "
+                        "so the pattern fills only the background."
+                    )
+            heightmap = apply_zone_overlays(
+                heightmap, dict(settings), subject_alpha=overlay_alpha
+            )
 
         # Polarity invert (signet-ring mode). Flip the whole heightmap
         # so the subject engraves deep and the background stays surface.
         if bool(settings.get("polarity_invert", False)):
             heightmap = (1.0 - heightmap).astype(np.float32)
+            if heightmap_clean is not None:
+                heightmap_clean = (1.0 - heightmap_clean).astype(np.float32)
 
         preview = render_preview(heightmap)
         elapsed = time.perf_counter() - start
@@ -437,6 +464,7 @@ class HeightmapService:
             subject_alpha=subject_alpha,
             conditioned=conditioned,
             warnings=warnings,
+            heightmap_clean=heightmap_clean,
         )
 
     # ------------------------------------------------------- background fill

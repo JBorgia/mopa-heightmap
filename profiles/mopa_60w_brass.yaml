@@ -63,7 +63,7 @@ lightburn_starting_point:
   frequency_khz: 100
   pulse_width_ns: 200
   line_interval_mm: 0.015
-  passes: 256
+  passes: 512
   angle_increment: 45
   cleanup_every_passes: 20
 # --- Zone-based engraving (enables multi-layer .lbrn2 export) --------------

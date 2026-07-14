@@ -66,8 +66,10 @@ from mopa.zones import (
     zone_masks_from_geometry,
     zone_hm_for_pass,
     entries_from_zone_params,
+    mask_from_heightmap,
     VALID_SHAPES,
 )
+from mopa.zone_overlays import zone_pattern_layer
 
 from . import blob_store
 from .schemas import (
@@ -250,6 +252,12 @@ def do_render(
         mask_img.save(mbuf, format="PNG")
         render_mask_id = blob_store.store_bytes(mbuf.getvalue(), "image/png")
 
+    # Pre-overlay heightmap — the layered .lbrn2 export engraves this on
+    # zone:device so decorative patterns (own layers) aren't burned twice.
+    clean_heightmap_id: Optional[str] = None
+    if getattr(result, "heightmap_clean", None) is not None:
+        clean_heightmap_id = blob_store.store_heightmap(result.heightmap_clean)
+
     return RenderResponse(
         heightmap_id=heightmap_id,
         preview_id=preview_id,
@@ -258,6 +266,7 @@ def do_render(
         conditioned_id=conditioned_id,
         render_mask_id=render_mask_id,
         warnings=list(result.warnings),
+        clean_heightmap_id=clean_heightmap_id,
     )
 
 
@@ -420,6 +429,7 @@ def do_export_lbrn2(
     profile_name: Optional[str] = None,
     subject_mask_id: Optional[str] = None,
     shape_override: Optional[str] = None,
+    clean_heightmap_id: Optional[str] = None,
 ) -> bytes:
     """Serialise a stored PassPlan into a zip bundle ready for LightBurn.
 
@@ -457,6 +467,15 @@ def do_export_lbrn2(
     hm = blob_store.load_heightmap(heightmap_id)
     if hm is None:
         raise KeyError(f"Unknown heightmap_id: {heightmap_id!r}")
+
+    # Pre-overlay heightmap for the device pass. When the render baked
+    # decorative patterns into `hm`, engraving that on zone:device would
+    # burn the patterns twice (they get their own layers). Silently absent
+    # for old sessions — then `hm` is used as-is.
+    hm_clean = blob_store.load_heightmap(clean_heightmap_id) if clean_heightmap_id else None
+    if hm_clean is not None and hm_clean.shape != hm.shape:
+        hm_clean = None  # resolution mismatch — don't mix scales
+    hm_device = hm_clean if hm_clean is not None else hm
 
     # Resolve the on-bed size. Profile fields ``print_width_mm`` and
     # ``print_height_mm`` define a BOUNDING BOX — the exporter scales
@@ -549,23 +568,34 @@ def do_export_lbrn2(
                 _mask_arr = np.asarray(_mask_pil, dtype=np.float32) / 255.0
             hm = _apply_subject_mask_to_heightmap(hm, _mask_arr)
 
-    # For zone plans, load the subject mask as the device zone mask.
-    # The stored ep.mask for zone:device is an all-ones placeholder; we swap
-    # it here for the actual subject silhouette so only the subject ablates.
-    # For zone:field, the device mask is subtracted so the field pass never
-    # fires over the subject area (would double-ablate at field parameters).
+    # For zone plans, resolve the device zone mask. The stored ep.mask for
+    # zone:device is an all-ones placeholder; we swap it here for the actual
+    # subject silhouette so only the subject ablates. For zone:field, the
+    # device mask is subtracted so the field pass never fires over the
+    # subject area (would double-ablate at field parameters).
+    #
+    # Preferred source: the HEIGHTMAP itself. Sculptok reliefs sit on a flat
+    # background, so thresholding it yields a pixel-accurate silhouette —
+    # photo-inference masks (rembg/birefnet) segment drawings and line art
+    # poorly. The photo mask is only the fallback when the heightmap's
+    # background isn't flat enough to threshold.
     device_mask: Optional[np.ndarray] = None
-    if is_zone_plan and subject_mask_id is not None:
-        _dev_raw = blob_store.load_heightmap(subject_mask_id)
-        if _dev_raw is not None:
-            if _dev_raw.shape != (px_h, px_w):
-                _dev_pil = Image.fromarray(
-                    (np.clip(_dev_raw, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8),
-                    mode="L",
-                ).resize((px_w, px_h), Image.LANCZOS)
-                device_mask = np.asarray(_dev_pil, dtype=np.float32) / 255.0
-            else:
-                device_mask = _dev_raw
+    if is_zone_plan:
+        device_mask = mask_from_heightmap(hm_device)
+        if device_mask is None and subject_mask_id is not None:
+            _dev_raw = blob_store.load_heightmap(subject_mask_id)
+            if _dev_raw is not None:
+                if _dev_raw.shape != (px_h, px_w):
+                    _dev_pil = Image.fromarray(
+                        (np.clip(_dev_raw, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8),
+                        mode="L",
+                    ).resize((px_w, px_h), Image.LANCZOS)
+                    device_mask = np.asarray(_dev_pil, dtype=np.float32) / 255.0
+                else:
+                    device_mask = _dev_raw
+
+    # Settings snapshot from plan time — drives export-time pattern layers.
+    plan_settings = get_plan_settings(plan_id)
 
     # Materialise per-pass PNGs into a scratch dir, then zip them up with
     # the project. Scratch dir is cleaned up before this function returns.
@@ -573,6 +603,11 @@ def do_export_lbrn2(
     try:
         depth_shapes = []
         png_paths: list[tuple[str, Path]] = []
+        _ZONE_SHORT = {
+            PASS_KIND_FIELD: "field",
+            PASS_KIND_BORDER: "border",
+            PASS_KIND_RIM: "rim",
+        }
         for idx, ep in enumerate(plan.passes):
             png_name = f"pass_{idx:02d}_{ep.kind.replace(':', '_')}.png"
             png_path = bundle_dir / png_name
@@ -595,7 +630,31 @@ def do_export_lbrn2(
                         mode="L",
                     ).resize((px_w, px_h), Image.LANCZOS)
                     eff_mask = np.asarray(_em_pil, dtype=np.float32) / 255.0
-                layer = zone_hm_for_pass(hm, eff_mask)
+                # Decorative zones carry their OWN pattern relief, generated
+                # here from the plan-time settings — the layer works even if
+                # the stored heightmap was rendered before patterns were
+                # chosen. Falls back to masking the sculpt heightmap when no
+                # pattern is configured for the zone.
+                pattern = None
+                if ep.kind in _ZONE_SHORT and plan_settings:
+                    pattern = zone_pattern_layer(
+                        _ZONE_SHORT[ep.kind], plan_settings, px_h, px_w,
+                        print_w_mm=print_w_mm, print_h_mm=print_h_mm,
+                    )
+                if pattern is not None:
+                    # Composite the pattern relief against white through the
+                    # zone mask: outside the zone nothing engraves.
+                    layer = np.clip(
+                        1.0 - (1.0 - pattern) * eff_mask, 0.0, 1.0
+                    ).astype(np.float32)
+                else:
+                    # Zone passes engrave the CLEAN sculpt — decorative
+                    # patterns baked into `hm` live in their own layers.
+                    layer = zone_hm_for_pass(hm_device, eff_mask)
+            elif ep.kind == "pre_clean":
+                # Pre-clean is a flat low-power surface sweep — a solid fill,
+                # not the sculpt depths.
+                layer = np.zeros((px_h, px_w), dtype=np.float32)
             else:
                 mask = ep.mask.astype(np.float32, copy=False)
                 layer = np.clip(1.0 - (1.0 - hm) * mask, 0.0, 1.0).astype(np.float32)
@@ -628,6 +687,40 @@ def do_export_lbrn2(
 
         profile = plan.profile
         used = {ep.cut_setting.index: ep.cut_setting for ep in plan.passes}
+
+        # Human-readable layer names — the LightBurn card's generic C00/C07
+        # labels tell the user nothing in the Cuts/Layers panel. Custom card
+        # names (anything not matching the generic CNN pattern) are kept.
+        import re as _re
+        _KIND_LAYER_NAMES = {
+            "pre_clean": "PreClean",
+            "photo_tonal": "PhotoTonal",
+            "signature": "Signature",
+            "form": "Sculpt3D",
+        }
+        # Single-sweep passes must not inherit the global 3D-slice pass
+        # count (256/512) — one pass unless the card says otherwise.
+        _SINGLE_SWEEP_KINDS = {"pre_clean", "photo_tonal", "signature"}
+        for ep in plan.passes:
+            fe = used.get(ep.cut_setting.index)
+            if fe is None:
+                continue
+            nice = _KIND_LAYER_NAMES.get(ep.kind)
+            rename = nice is not None and _re.fullmatch(r"C\d{1,2}", fe.name or "")
+            single = ep.kind in _SINGLE_SWEEP_KINDS and "numPasses" not in fe.raw
+            if not rename and not single:
+                continue
+            named_raw = dict(fe.raw)
+            if rename:
+                named_raw["name"] = nice
+            if single:
+                named_raw["numPasses"] = "1"
+            used[fe.index] = ColorEntry(
+                index=fe.index, name=nice if rename else fe.name,
+                max_power=fe.max_power, speed=fe.speed, frequency=fe.frequency,
+                q_pulse_width=fe.q_pulse_width, interval=fe.interval,
+                raw=named_raw,
+            )
 
         # Apply lightburn_starting_point overrides to the form pass so the
         # exported .lbrn2 uses the profile's actual laser parameters rather
@@ -831,13 +924,16 @@ _PASS_PALETTE: List[str] = [
 ]
 
 _plan_lock = threading.Lock()
-_plans: Dict[str, Any] = {}   # plan_id -> PassPlan (opaque; used by export)
+_plans: Dict[str, Any] = {}            # plan_id -> PassPlan (opaque; used by export)
+_plan_settings: Dict[str, Dict[str, Any]] = {}  # plan_id -> settings dict at plan time
 
 
-def store_plan(plan: Any) -> str:
+def store_plan(plan: Any, settings: Optional[Dict[str, Any]] = None) -> str:
     plan_id = str(uuid.uuid4())
     with _plan_lock:
         _plans[plan_id] = plan
+        if settings is not None:
+            _plan_settings[plan_id] = dict(settings)
     return plan_id
 
 
@@ -846,17 +942,31 @@ def get_plan(plan_id: str) -> Optional[Any]:
         return _plans.get(plan_id)
 
 
+def get_plan_settings(plan_id: str) -> Dict[str, Any]:
+    """Settings snapshot taken when the plan was computed — the exporter
+    uses these to generate zone pattern layers without a re-render."""
+    with _plan_lock:
+        return dict(_plan_settings.get(plan_id, {}))
+
+
 def _build_zone_passes(
     hm: np.ndarray,
     profile_payload: Dict[str, Any],
     material_profile: Any,
     shape_override: Optional[str] = None,
+    settings: Optional[Dict[str, Any]] = None,
 ) -> Optional[List[EngravingPass]]:
     """Build zone EngravingPass objects when the profile has zone_params.
 
     Returns None when zones are not configured or geometry is missing.
     The device zone gets an all-ones mask (placeholder); the real subject
     mask is applied per-pixel at export time.
+
+    Zones with a decorative pattern selected in ``settings`` are switched
+    from the profile's anneal parameters to REAL 3D sculpting: the device's
+    lightburn_starting_point parameters with the pass count scaled by the
+    pattern's depth slider. A guilloche at 2 annealing passes is a tinted
+    stencil; at depth×sculpt-passes it's actual relief.
     """
     zone_params = profile_payload.get("zone_params")
     if not zone_params:
@@ -897,6 +1007,44 @@ def _build_zone_passes(
     zone_entries = entries_from_zone_params(
         zone_params, starting, cleanup_every_passes=cleanup
     )
+
+    # 3D decoration mode: a zone with a pattern selected sculpts real relief
+    # at the device's calibrated parameters. The pattern's depth slider sets
+    # relief depth as a fraction of the full sculpt depth via the pass count.
+    _DECOR_KEYS = {
+        PASS_KIND_FIELD:  ("field_pattern",  "field_pattern_depth",  0.70),
+        PASS_KIND_BORDER: ("border_pattern", "border_pattern_depth", 0.85),
+        PASS_KIND_RIM:    ("rim_pattern",    "rim_pattern_depth",    1.0),
+    }
+    if settings and starting:
+        base_passes = int(starting.get("passes", 256))
+        for kind, (pat_key, depth_key, depth_default) in _DECOR_KEYS.items():
+            if str(settings.get(pat_key, "none") or "none").lower() == "none":
+                continue
+            entry = zone_entries.get(kind)
+            if entry is None:
+                continue
+            depth = float(np.clip(settings.get(depth_key, depth_default), 0.05, 1.0))
+            n_passes = max(1, int(round(base_passes * depth)))
+            sp_speed = float(starting.get("speed_mm_s", entry.speed))
+            sp_power = float(starting.get("power_percent", entry.max_power))
+            sp_freq_hz = int(float(starting.get("frequency_khz", entry.frequency / 1000.0)) * 1000)
+            sp_pulse = int(starting.get("pulse_width_ns", entry.q_pulse_width))
+            sp_interval = float(starting.get("line_interval_mm", entry.interval))
+            raw = dict(entry.raw)
+            raw.update({
+                "speed": str(int(sp_speed)),
+                "maxPower": str(int(sp_power)),
+                "frequency": str(sp_freq_hz),
+                "QPulseWidth": str(sp_pulse),
+                "interval": str(sp_interval),
+                "numPasses": str(n_passes),
+            })
+            zone_entries[kind] = ColorEntry(
+                index=entry.index, name=entry.name,
+                max_power=sp_power, speed=sp_speed, frequency=sp_freq_hz,
+                q_pulse_width=sp_pulse, interval=sp_interval, raw=raw,
+            )
 
     _ZONE_KIND_ORDER = [
         PASS_KIND_FIELD,
@@ -984,7 +1132,10 @@ def do_plan(
         user_toggles["signature"]   = bool((getattr(settings, "signature_text", "") or "").strip())
 
     # Build zone passes when the profile defines zone_params.
-    zone_passes = _build_zone_passes(hm, profile_payload, material_profile, shape_override=shape_override)
+    zone_passes = _build_zone_passes(
+        hm, profile_payload, material_profile, shape_override=shape_override,
+        settings=heightmap_settings_to_dict(settings) if settings else None,
+    )
     if zone_passes:
         # Zones replace the form pass — disable it.
         user_toggles[PASS_KIND_FORM] = False
@@ -1006,7 +1157,10 @@ def do_plan(
         merged = tuple(pre_clean + zone_passes + refinement)
         result = PassPlan(profile=result.profile, passes=merged)
 
-    plan_id = store_plan(result)
+    plan_id = store_plan(
+        result,
+        settings=heightmap_settings_to_dict(settings) if settings else None,
+    )
     per_pass_depth = 0.0
 
     _KIND_LABELS: Dict[str, str] = {

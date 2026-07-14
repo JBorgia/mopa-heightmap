@@ -461,9 +461,11 @@ def test_plan_and_lbrn2_export_use_profile_lightburn_card_override(
         }
         for cut in cut_nodes
     ]
+    # Generic card names (C01) are replaced with readable kind names at
+    # export; the layer parameters must still come from the override card.
     assert any(
         layer.get("index") == "17"
-        and layer.get("name") == "C01"
+        and layer.get("name") == "Sculpt3D"
         and layer.get("maxPower") == "42"
         and layer.get("speed") == "900"
         for layer in exported_layers

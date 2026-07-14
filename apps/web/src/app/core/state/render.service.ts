@@ -97,6 +97,7 @@ export class RenderService {
               previewId: response.preview_id,
               conditionedId: response.conditioned_id ?? null,
               renderMaskId: response.render_mask_id ?? null,
+              cleanHeightmapId: response.clean_heightmap_id ?? null,
               // Any prior plan was computed for the previous heightmap.
               // Clearing it forces the wizard's auto-compute to recompute.
               plan: null,

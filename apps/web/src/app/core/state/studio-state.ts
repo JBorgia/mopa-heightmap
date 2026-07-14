@@ -103,6 +103,12 @@ export interface StudioState {
      * created via /mask, which lives at pipeline.mask.maskId.
      */
     renderMaskId: string | null;
+    /**
+     * Blob id of the heightmap BEFORE zone overlays were baked in. Sent to
+     * /export/lbrn2 so the zone:device layer engraves the clean sculpt while
+     * the decorative patterns ship in their own layers.
+     */
+    cleanHeightmapId: string | null;
     plan: PassPlan | null;
     elapsedSeconds: number | null;
   };
@@ -245,6 +251,7 @@ export const DEFAULT_STUDIO_STATE: StudioState = {
     conditionedId: null,
     sculptokInputId: null,
     renderMaskId: null,
+    cleanHeightmapId: null,
     plan: null,
     elapsedSeconds: null,
   },

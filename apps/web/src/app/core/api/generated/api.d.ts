@@ -476,6 +476,8 @@ export interface components {
             subject_mask_id?: string | null;
             /** Shape Override */
             shape_override?: string | null;
+            /** Clean Heightmap Id */
+            clean_heightmap_id?: string | null;
         };
         /** ExportLbrn2Request */
         ExportLbrn2Request: {
@@ -485,6 +487,8 @@ export interface components {
             heightmap_id: string;
             /** Profile Name */
             profile_name?: string | null;
+            /** Clean Heightmap Id */
+            clean_heightmap_id?: string | null;
             /** Subject Mask Id */
             subject_mask_id?: string | null;
             /** Shape Override */
@@ -1033,6 +1037,8 @@ export interface components {
              * @default []
              */
             warnings: string[];
+            /** Clean Heightmap Id */
+            clean_heightmap_id?: string | null;
         };
         /**
          * SculptokCreditsResponse

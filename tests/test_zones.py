@@ -113,9 +113,21 @@ def test_exergue_is_bottom_strip():
     masks = _geo("circle")
     ex = masks["exergue"]
     h = ex.shape[0]
-    # Top row should be ~0, bottom row should have content
+    # Top row ~0; strip content sits in the bottom fraction but INSIDE the
+    # border/rim rings (the outermost rows belong to the rings, not exergue).
     assert ex[0, :].mean() < 0.05
-    assert ex[-1, :].mean() > 0.1
+    strip_row = int(h * 0.88)  # inside the default 18% bottom strip
+    assert ex[strip_row, :].mean() > 0.05
+
+
+def test_zone_masks_are_mutually_exclusive():
+    masks = _geo("circle")
+    hard = {k: masks[k] > 0.5 for k in ("field", "border", "rim", "exergue")}
+    names = list(hard)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            overlap = int((hard[a] & hard[b]).sum())
+            assert overlap == 0, f"{a} overlaps {b} by {overlap} px"
 
 
 # ---------------------------------------------------------------------------
