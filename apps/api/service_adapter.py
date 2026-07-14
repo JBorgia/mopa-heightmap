@@ -593,9 +593,44 @@ def do_export_lbrn2(
                     device_mask = np.asarray(_dev_pil, dtype=np.float32) / 255.0
                 else:
                     device_mask = _dev_raw
+        if device_mask is not None:
+            # Harden the split. Soft photo-inference masks (rembg) carry
+            # broad 0.3–0.7 regions; splitting zones with those makes BOTH
+            # the device and the surrounding zone partially engrave the
+            # same pixels (double partial burns — visible smears). Binarise
+            # at 0.5, then re-feather a couple of px so the seam doesn't
+            # alias.
+            device_mask = (device_mask >= 0.5).astype(np.float32)
+            try:
+                import cv2
+                device_mask = cv2.GaussianBlur(device_mask, (5, 5), 0)
+            except ImportError:
+                pass
 
     # Settings snapshot from plan time — drives export-time pattern layers.
     plan_settings = get_plan_settings(plan_id)
+
+    # Zone precedence (classic coin composition):
+    #   * rings (border/rim) FRAME the design — the device is clipped to the
+    #     field region so a subject spilling over the rings is cropped by
+    #     them, not the other way round;
+    #   * the exergue strip is a reserved text panel — the device is clipped
+    #     out of it too (the design "sits on the exergue line");
+    #   * the field yields to the device (subject floats on the background).
+    # field_geo already excludes rings + exergue, so clipping the device to
+    # it implements all three rules at once.
+    field_geo: Optional[np.ndarray] = None
+    for _ep in plan.passes:
+        if _ep.kind == PASS_KIND_FIELD:
+            field_geo = _ep.mask.astype(np.float32, copy=False)
+            if field_geo.shape != (px_h, px_w):
+                _fg_pil = Image.fromarray(
+                    (np.clip(field_geo, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8), mode="L",
+                ).resize((px_w, px_h), Image.LANCZOS)
+                field_geo = np.asarray(_fg_pil, dtype=np.float32) / 255.0
+            break
+    if device_mask is not None and field_geo is not None:
+        device_mask = np.clip(device_mask * field_geo, 0.0, 1.0)
 
     # Materialise per-pass PNGs into a scratch dir, then zip them up with
     # the project. Scratch dir is cleaned up before this function returns.
@@ -618,7 +653,8 @@ def do_export_lbrn2(
                     # Subject mask overrides the all-ones placeholder stored in ep.mask.
                     eff_mask = device_mask if device_mask is not None else np.ones((px_h, px_w), dtype=np.float32)
                 elif ep.kind == PASS_KIND_FIELD and device_mask is not None:
-                    # Prevent field pass from double-ablating over the device area.
+                    # The field yields to the device: never re-engrave the
+                    # subject area at field parameters.
                     eff_mask = np.clip(ep.mask.astype(np.float32, copy=False) * (1.0 - device_mask), 0.0, 1.0)
                 else:
                     eff_mask = ep.mask.astype(np.float32, copy=False)
@@ -641,7 +677,12 @@ def do_export_lbrn2(
                         _ZONE_SHORT[ep.kind], plan_settings, px_h, px_w,
                         print_w_mm=print_w_mm, print_h_mm=print_h_mm,
                     )
-                if pattern is not None:
+                if ep.kind == PASS_KIND_EXERGUE:
+                    # Reserved text panel: a flat recess at exergue params —
+                    # never leftover sculpt content. Text relief lands here
+                    # once exergue text is supported.
+                    layer = np.clip(1.0 - eff_mask, 0.0, 1.0).astype(np.float32)
+                elif pattern is not None:
                     # Composite the pattern relief against white through the
                     # zone mask: outside the zone nothing engraves.
                     layer = np.clip(
@@ -989,6 +1030,9 @@ def _build_zone_passes(
     zone_geo = profile_payload.get("zone_geometry") or {}
     sigma_scale = float(profile_payload.get("zone_boundary_sigma_scale", 1.0))
 
+    # When the exergue pass is disabled its strip belongs to the FIELD —
+    # otherwise the bottom strip would be a dead zone no pass engraves.
+    exergue_on = settings is None or bool(settings.get("exergue_enabled", False))
     geo = zone_masks_from_geometry(
         px_h, px_w,
         shape=shape,
@@ -997,7 +1041,9 @@ def _build_zone_passes(
         px_per_mm=px_per_mm,
         border_width_mm=float(zone_geo.get("border_width_mm", 1.5)),
         rim_width_mm=float(zone_geo.get("rim_width_mm", 0.5)),
-        exergue_height_fraction=float(zone_geo.get("exergue_height_fraction", 0.18)),
+        exergue_height_fraction=(
+            float(zone_geo.get("exergue_height_fraction", 0.18)) if exergue_on else 0.0
+        ),
         hole_radius_mm=zone_geo.get("hole_radius_mm"),
         sigma_scale=sigma_scale,
     )
@@ -1072,6 +1118,14 @@ def _build_zone_passes(
     for kind in _ZONE_KIND_ORDER:
         entry = zone_entries.get(kind)
         if entry is None:
+            continue
+        # Exergue is opt-in: without text content the pass would deep-engrave
+        # whatever background happens to sit in the bottom strip.
+        if (
+            kind == PASS_KIND_EXERGUE
+            and settings is not None
+            and not bool(settings.get("exergue_enabled", False))
+        ):
             continue
         geo_key = _ZONE_GEO_KEY[kind]
         if geo_key is not None:

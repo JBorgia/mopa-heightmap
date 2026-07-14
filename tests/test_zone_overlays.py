@@ -222,6 +222,77 @@ def test_decorated_zones_sculpt_at_scaled_pass_counts():
     assert '<numPasses Value="2"/>' in rim and '<speed Value="1800"/>' in rim
 
 
+def test_zone_precedence_and_exergue_gating():
+    """Zone precedence: rings and the exergue strip clip the device (the
+    frame wins; the strip is a reserved text panel), the field yields to
+    the device, and the exergue pass only exists when exergue_enabled —
+    when disabled its strip belongs to the field."""
+    import io as _io
+    import zipfile as _zipfile
+    from fastapi.testclient import TestClient
+    from apps.api.main import app
+
+    client = TestClient(app)
+    rng = np.random.default_rng(9)
+    photo = rng.uniform(60, 200, (240, 240, 3)).astype(np.uint8)
+    buf = io.BytesIO(); Image.fromarray(photo).save(buf, format="PNG")
+    image_id = client.post("/upload", files={"file": ("p.png", buf.getvalue(), "image/png")}).json()["image_id"]
+
+    # Subject block reaches into the bottom exergue strip (rows > 197)
+    # without touching the canvas edge (which would defeat the flat-border
+    # background check).
+    hm = np.zeros((240, 240), dtype=np.float32)
+    hm[80:224, 80:160] = 0.8
+    buf = io.BytesIO(); Image.fromarray((hm * 65535).astype(np.uint16)).save(buf, format="PNG")
+    hm_path = client.post("/upload/heightmap", files={"file": ("h.png", buf.getvalue(), "image/png")}).json()["heightmap_path"]
+
+    base = {"external_heightmap_path": hm_path, "heightmap_enhance_mode": "off",
+            "zone_width_mm": 60.0, "zone_height_mm": 60.0, "zone_shape": "circle"}
+
+    def run(settings):
+        r = client.post("/render", json={"image_id": image_id, "settings": settings,
+                                         "profile_name": "mopa_60w_brass"})
+        assert r.status_code == 200, r.text
+        plan = client.post("/plan", json={"image_id": image_id, "heightmap_id": r.json()["heightmap_id"],
+                                          "profile_name": "mopa_60w_brass", "settings": settings,
+                                          "shape_override": "circle"}).json()
+        exp = client.post("/export/lbrn2", json={"plan_id": plan["plan_id"],
+                                                 "heightmap_id": r.json()["heightmap_id"],
+                                                 "profile_name": "mopa_60w_brass",
+                                                 "shape_override": "circle",
+                                                 "clean_heightmap_id": r.json().get("clean_heightmap_id")})
+        assert exp.status_code == 200, exp.text
+        return plan, _zipfile.ZipFile(_io.BytesIO(exp.content))
+
+    # Default: exergue pass absent; its strip belongs to the field, so the
+    # device still engraves the subject's bottom (inside the strip area).
+    plan, zf = run(dict(base))
+    assert not any("Exergue" in p["label"] for p in plan["passes"])
+    assert not any("exergue" in n for n in zf.namelist())
+    dev_name = next(n for n in zf.namelist() if "device" in n)
+    dev = np.flipud(np.asarray(Image.open(io.BytesIO(zf.read(dev_name))).convert("L"), dtype=np.int32))
+    in_strip = np.zeros((240, 240), dtype=bool)
+    in_strip[202:216, 92:148] = True  # inside both the subject block and the strip
+    assert (dev[in_strip] < 250).mean() > 0.9, "device lost the subject bottom"
+
+    # Enabled: exergue present as a flat recessed text panel; the device is
+    # clipped at the exergue line (the design sits ON the strip, classic
+    # coin composition), and the panel is uniformly recessed — no leftover
+    # sculpt content.
+    plan, zf = run({**base, "exergue_enabled": True})
+    assert any("Exergue" in p["label"] for p in plan["passes"])
+    ex_name = next(n for n in zf.namelist() if "exergue" in n)
+    dev_name = next(n for n in zf.namelist() if "device" in n)
+    ex = np.flipud(np.asarray(Image.open(io.BytesIO(zf.read(ex_name))).convert("L"), dtype=np.int32))
+    dev = np.flipud(np.asarray(Image.open(io.BytesIO(zf.read(dev_name))).convert("L"), dtype=np.int32))
+    assert (dev[in_strip] >= 250).mean() > 0.9, "device not clipped at the exergue line"
+    assert (ex[in_strip] < 128).mean() > 0.9, "exergue panel is not a flat recess"
+    # Above the strip the device still engraves the subject.
+    above = np.zeros((240, 240), dtype=bool)
+    above[120:180, 92:148] = True
+    assert (dev[above] < 250).mean() > 0.9, "device lost the subject above the strip"
+
+
 # ----------------------------------------------------------- /render mask_id
 
 def test_render_reuses_wizard_mask_id():

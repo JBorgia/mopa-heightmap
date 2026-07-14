@@ -783,6 +783,11 @@ export interface components {
              */
             zone_rim_width_mm: number;
             /**
+             * Exergue Enabled
+             * @default false
+             */
+            exergue_enabled: boolean;
+            /**
              * Field Pattern
              * @default none
              * @enum {string}

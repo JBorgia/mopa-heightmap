@@ -112,6 +112,10 @@ class HeightmapSettings(BaseModel):
     ] = "circle"
     zone_border_width_mm: float = Field(1.5, ge=0.0, le=20.0)
     zone_rim_width_mm: float = Field(0.5, ge=0.0, le=10.0)
+    # Exergue (bottom text strip) pass — off by default: until it carries
+    # actual text content it would only engrave whatever background falls
+    # inside the strip at deep text parameters.
+    exergue_enabled: bool = False
 
     # Field overlay — post-sculptok pattern composited into zone:field.
     field_pattern: Literal[

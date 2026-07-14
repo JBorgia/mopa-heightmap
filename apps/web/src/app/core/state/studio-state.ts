@@ -202,6 +202,7 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   zone_shape: 'circle',
   zone_border_width_mm: 1.5,
   zone_rim_width_mm: 0.5,
+  exergue_enabled: false,
 
   // Field overlay (post-sculptok, composited into zone:field).
   field_pattern: 'none',

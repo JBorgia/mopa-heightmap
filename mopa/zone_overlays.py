@@ -722,6 +722,11 @@ def apply_zone_overlays(
         px_per_mm=px_per_mm,
         border_width_mm=border_width_mm,
         rim_width_mm=rim_width_mm,
+        # The strip only exists as a zone when the exergue pass is enabled;
+        # otherwise it belongs to the field (mirrors the planner).
+        exergue_height_fraction=(
+            0.18 if bool(settings.get("exergue_enabled", False)) else 0.0
+        ),
     )
 
     result = heightmap.copy()
