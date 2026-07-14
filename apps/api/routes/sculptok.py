@@ -30,6 +30,7 @@ from mopa.sculptok_client import (
     SculptokClient,
     SculptokDepthMapParams,
     SculptokInsufficientCreditsError,
+    flatten_cutout,
 )
 from mopa.settings import load_settings, resolve_sculptok_api_key
 
@@ -114,6 +115,7 @@ async def generate(
         draw_hd=req.draw_hd,
         settings=settings_dict,
         user_id=user_id,
+        remove_background=req.remove_background,
     )
     if job_id:
         return {"job_id": job_id}
@@ -189,6 +191,31 @@ async def _generate_sync(
         balance_before = client.get_credits()
     except SculptokAPIError as exc:
         raise HTTPException(status_code=502, detail=f"Sculptok API error: {exc}") from exc
+
+    # Native Sculptok background removal (+2 credits). The cutout replaces
+    # the photo the depth model consumes, and its alpha channel ships back
+    # as a pixel-perfect subject mask.
+    if req.remove_background:
+        try:
+            cut_path = client.remove_background(
+                photo_path, out_path=_CACHE_DIR / f"{req.image_id}_cutout.png",
+            )
+        except SculptokInsufficientCreditsError as exc:
+            raise HTTPException(status_code=402, detail=str(exc)) from exc
+        except SculptokAPIError as exc:
+            raise HTTPException(status_code=502, detail=f"Sculptok bg-removal error: {exc}") from exc
+        except TimeoutError as exc:
+            raise HTTPException(status_code=504, detail=str(exc)) from exc
+        flattened, cut_alpha = flatten_cutout(cut_path)
+        flattened.save(photo_path, format="PNG")
+        fbuf = io.BytesIO()
+        flattened.save(fbuf, format="PNG")
+        sculptok_input_id = blob_store.store_bytes(fbuf.getvalue(), "image/png")
+        if cut_alpha is not None:
+            arr16 = (np.clip(cut_alpha, 0.0, 1.0) * 65535).astype(np.uint16)
+            mbuf = io.BytesIO()
+            Image.fromarray(arr16, mode="I;16").save(mbuf, format="PNG")
+            subject_mask_id = blob_store.store_bytes(mbuf.getvalue(), "image/png")
 
     try:
         result_path = client.generate_heightmap(

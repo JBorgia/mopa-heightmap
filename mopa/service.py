@@ -517,12 +517,23 @@ class HeightmapService:
             if is_solid
             else float(np.clip(settings.get("background_intensity", 0.6), 0.0, 1.0))
         )
-        bg_mask = subject_alpha < 0.5
+        # Harden the alpha before compositing. Inference masks carry broad
+        # 0.3–0.7 uncertainty regions (reflective objects, busy edges);
+        # blending with those FADES the subject toward the fill — sculptok
+        # then reads the dimmed pixels as lower relief. A pixel is either
+        # subject or background; only a ~2 px edge feather blends.
+        blend_alpha = (subject_alpha >= 0.5).astype(np.float32)
+        try:
+            import cv2
+            blend_alpha = cv2.GaussianBlur(blend_alpha, (5, 5), 0)
+        except ImportError:
+            pass
+        bg_mask = blend_alpha < 0.5
         if bg_mask.any():
-            base = float(photo_arr[bg_mask].mean()) if bg_mask.any() else 0.5
+            base = float(photo_arr[bg_mask].mean())
             pattern_luma = (pattern * intensity + (1.0 - intensity) * base)[..., None]
             pattern_rgb = np.broadcast_to(pattern_luma, photo_arr.shape).astype(np.float32)
-            blend = subject_alpha[..., None]
+            blend = blend_alpha[..., None]
             composited = photo_arr * blend + pattern_rgb * (1.0 - blend)
             composited = np.clip(composited * 255.0 + 0.5, 0, 255).astype(np.uint8)
             return Image.fromarray(composited, mode="RGB")

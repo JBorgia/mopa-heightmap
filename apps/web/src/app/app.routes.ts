@@ -7,10 +7,6 @@ export const routes: Routes = [
     loadComponent: () => import('./features/wizard/wizard-shell.component').then(m => m.WizardShellComponent),
   },
   {
-    path: 'studio',
-    loadComponent: () => import('./features/studio/studio-shell.component').then(m => m.StudioShellComponent),
-  },
-  {
     path: 'pricing',
     loadComponent: () => import('./features/pricing/pricing-page.component').then(m => m.PricingPageComponent),
   },

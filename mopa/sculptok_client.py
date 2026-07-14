@@ -48,11 +48,10 @@ from typing import Any, Dict, List, Optional
 __all__ = [
     "SculptokClient",
     "SculptokAPIError",
+    "flatten_cutout",
     "SculptokInsufficientCreditsError",
     "SculptokDepthMapParams",
     "SculptokHDFixParams",
-    "SculptokThreeDParams",
-    "SculptokSTLParams",
     "SculptokTaskStatus",
     "BASE_URL",
     "DEFAULT_USER_AGENT",
@@ -65,8 +64,6 @@ __all__ = [
     "PROMPT_PRICE_PRO",
     "PROMPT_PRICE_PRO_4K",
     "PROMPT_PRICE_HD_FIX",
-    "PROMPT_PRICE_3D",
-    "PROMPT_PRICE_STL",
 ]
 
 
@@ -97,8 +94,31 @@ PROMPT_PRICE_NORMAL: int = 10
 PROMPT_PRICE_PRO: int = 15
 PROMPT_PRICE_PRO_4K: int = 30
 PROMPT_PRICE_HD_FIX: int = 2
-PROMPT_PRICE_3D: int = 10
-PROMPT_PRICE_STL: int = 3
+
+
+def flatten_cutout(
+    cutout_path: str | Path,
+    background: tuple = (0, 0, 0),
+):
+    """Load a Sculptok cutout PNG → (flattened RGB image, alpha or None).
+
+    The bg-removal endpoint returns an RGBA PNG whose alpha channel is the
+    subject cutout. Flattening onto black matches the solid_black
+    background-replace convention (the depth model reads the flat area as
+    zero relief); the alpha doubles as a pixel-perfect subject mask.
+    Returns ``(PIL.Image RGB, np.float32 (H, W) alpha | None)``.
+    """
+    import numpy as _np
+    from PIL import Image as _Image
+
+    img = _Image.open(Path(cutout_path))
+    if "A" in img.getbands():
+        alpha_ch = img.getchannel("A")
+        alpha = _np.asarray(alpha_ch, dtype=_np.float32) / 255.0
+        flat = _Image.new("RGB", img.size, background)
+        flat.paste(img.convert("RGB"), mask=alpha_ch)
+        return flat, alpha
+    return img.convert("RGB"), None
 
 
 class SculptokAPIError(RuntimeError):
@@ -206,92 +226,6 @@ class SculptokHDFixParams:
 
     def expected_cost(self) -> int:
         return PROMPT_PRICE_HD_FIX
-
-
-@dataclass(frozen=True)
-class SculptokThreeDParams:
-    """Parameters for ``POST /draw/3d/prompt`` (full 3D mesh generation).
-
-    ``hd_fix`` (oddly named — it's really the precision tier in the docs)
-    drives output quality:
-
-        * ``"basic"`` (default): fastest / cheapest geometry.
-        * ``"standard"``: middle ground.
-        * ``"high"``: most detail.
-
-    Pricing: 10 credits per call. Note: per Sculptok's pricing page,
-    "Advanced 3D Model in 3D Generation does not qualify for Credit
-    exemption" even on ULTIMATE, so this always bills against the user's
-    balance.
-    """
-
-    hd_fix: str = "basic"
-
-    def __post_init__(self) -> None:
-        if self.hd_fix not in {"basic", "standard", "high"}:
-            raise ValueError(
-                f"hd_fix must be basic|standard|high; got {self.hd_fix!r}"
-            )
-
-    def to_request_body(self, image_url: str) -> Dict[str, Any]:
-        return {"imageUrl": image_url, "hd_fix": self.hd_fix}
-
-    def expected_cost(self) -> int:
-        return PROMPT_PRICE_3D
-
-
-@dataclass(frozen=True)
-class SculptokSTLParams:
-    """Parameters for ``POST /draw/stl/prompt`` (image → STL mesh).
-
-    Sculptok's image-to-STL service rasterises a depth map straight to
-    a printable STL. Useful as an alternative to our local
-    :func:`apps.api.routes.export.export_stl` route — particularly when
-    the user already has a Sculptok-generated depth map and wants the
-    STL alongside the heightmap PNG.
-
-    Pricing: 3 credits per call.
-    """
-
-    width_mm: float = 120.0          # 40-240 mm
-    min_thickness: float = 1.6       # 0.4-8 mm; brightest area
-    max_thickness: float = 5.0       # 0.4-25 mm; darkest area
-    invert: bool = False             # True = white deep, black shallow
-    scale_image: float = 50.0        # 0-100 percent
-
-    def __post_init__(self) -> None:
-        if not 40.0 <= self.width_mm <= 240.0:
-            raise ValueError(f"width_mm must be 40..240; got {self.width_mm}")
-        if not 0.4 <= self.min_thickness <= 8.0:
-            raise ValueError(
-                f"min_thickness must be 0.4..8; got {self.min_thickness}"
-            )
-        if not 0.4 <= self.max_thickness <= 25.0:
-            raise ValueError(
-                f"max_thickness must be 0.4..25; got {self.max_thickness}"
-            )
-        if self.max_thickness <= self.min_thickness:
-            raise ValueError(
-                "max_thickness must exceed min_thickness "
-                f"(got {self.min_thickness}/{self.max_thickness})"
-            )
-        if not 0.0 <= self.scale_image <= 100.0:
-            raise ValueError(
-                f"scale_image must be 0..100; got {self.scale_image}"
-            )
-
-    def to_request_body(self, image_url: str) -> Dict[str, Any]:
-        return {
-            "image_url": image_url,
-            "width_mm": float(self.width_mm),
-            "min_thickness": float(self.min_thickness),
-            "max_thickness": float(self.max_thickness),
-            "invert": bool(self.invert),
-            "scale_image": float(self.scale_image),
-        }
-
-    def expected_cost(self) -> int:
-        return PROMPT_PRICE_STL
 
 
 @dataclass(frozen=True)
@@ -509,65 +443,6 @@ class SculptokClient:
             )
         return str(prompt_id)
 
-    # ------------------------------------------------------ 3D mesh draw
-
-    def submit_3d_draw(
-        self,
-        image_url: str,
-        params: SculptokThreeDParams = SculptokThreeDParams(),
-    ) -> str:
-        """Submit a 3D-mesh generation job.
-
-        Endpoint: ``POST /draw/3d/prompt``. Returns the ``promptId`` to
-        poll with :meth:`get_drawing_status`. Costs 10 credits per call.
-        Per Sculptok's pricing page, this *does not* qualify for the
-        ULTIMATE plan's "unlimited" credit exemption.
-        """
-        sess = self._ensure_session()
-        r = sess.post(
-            f"{self._base_url}/draw/3d/prompt",
-            timeout=self._timeout_s,
-            json=params.to_request_body(image_url),
-            headers={"Content-Type": "application/json"},
-        )
-        r.raise_for_status()
-        data = self._check_envelope(r.json()) or {}
-        prompt_id = data.get("promptId")
-        if not prompt_id:
-            raise SculptokAPIError(
-                "3D submit succeeded but response had no 'promptId'", raw=data,
-            )
-        return str(prompt_id)
-
-    # ----------------------------------------------------- image-to-STL
-
-    def submit_image_to_stl(
-        self,
-        image_url: str,
-        params: SculptokSTLParams = SculptokSTLParams(),
-    ) -> str:
-        """Submit an Image-to-STL job (Sculptok's ready-to-print pipeline).
-
-        Endpoint: ``POST /draw/stl/prompt``. Costs 3 credits per call.
-        Returns the ``promptId`` to poll; on completion, the STL URL
-        appears in :attr:`SculptokTaskStatus.image_results`.
-        """
-        sess = self._ensure_session()
-        r = sess.post(
-            f"{self._base_url}/draw/stl/prompt",
-            timeout=self._timeout_s,
-            json=params.to_request_body(image_url),
-            headers={"Content-Type": "application/json"},
-        )
-        r.raise_for_status()
-        data = self._check_envelope(r.json()) or {}
-        prompt_id = data.get("promptId")
-        if not prompt_id:
-            raise SculptokAPIError(
-                "STL submit succeeded but response had no 'promptId'", raw=data,
-            )
-        return str(prompt_id)
-
     # ----------------------------------------------------- drawing history
 
     def get_drawing_history(
@@ -633,6 +508,50 @@ class SculptokClient:
         )
 
     # ----------------------------------------------------- end-to-end helper
+
+    def remove_background(
+        self,
+        photo_path: str | Path,
+        *,
+        out_path: Optional[str | Path] = None,
+        mode: str = "general",
+        poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
+        poll_timeout_s: float = DEFAULT_POLL_TIMEOUT_S,
+    ) -> Path:
+        """One-shot background removal: upload → /draw/hd/prompt → download.
+
+        Uses Sculptok's own cutout service (2 credits) — typically cleaner
+        than local rembg for the photos Sculptok itself will consume. The
+        result is usually an RGBA PNG whose alpha is the subject cutout;
+        callers flatten it onto their background of choice and can reuse
+        the alpha channel as a subject mask.
+        """
+        photo_path = Path(photo_path)
+        if not photo_path.exists():
+            raise FileNotFoundError(f"photo not found: {photo_path}")
+        if out_path is None:
+            out_path = photo_path.with_name(photo_path.stem + "_cutout.png")
+        out_path = Path(out_path)
+
+        image_url = self.upload_image(photo_path)
+        prompt_id = self.submit_hd_fix(
+            image_url,
+            params=SculptokHDFixParams(hd_fix=False, remove_back=mode),
+        )
+        status = self.wait_for_completion(
+            prompt_id, interval_s=poll_interval_s, timeout_s=poll_timeout_s,
+        )
+        if not status.image_results:
+            raise SculptokAPIError(
+                f"bg-removal task {prompt_id!r} completed but had no image results",
+                raw=status.raw,
+            )
+        sess = self._ensure_session()
+        r = sess.get(status.image_results[0], timeout=self._timeout_s)
+        r.raise_for_status()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(r.content)
+        return out_path
 
     def generate_heightmap(
         self,

@@ -53,8 +53,8 @@ describe('SessionTreeService', () => {
   });
 
   it('setActiveRoute() updates ui.activeRoute', () => {
-    service.setActiveRoute('studio');
-    expect(service.state().ui.activeRoute).toBe('studio');
+    service.setActiveRoute('export');
+    expect(service.state().ui.activeRoute).toBe('export');
   });
 
   it('setWizardPage() updates ui.wizardPage', () => {

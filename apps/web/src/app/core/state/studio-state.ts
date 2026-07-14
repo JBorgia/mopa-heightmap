@@ -14,7 +14,7 @@ export const DEFAULT_EXPORT_LBRN2_ENABLED = true;
 export const DEFAULT_EXPORT_STL_ENABLED = false;
 export const LOCAL_STORAGE_DEBOUNCE_MS = 500;
 
-export type ActiveRoute = 'wizard' | 'studio' | 'export';
+export type ActiveRoute = 'wizard' | 'export';
 export type MaskBackend = 'birefnet' | 'rembg' | 'threshold';
 export type ClickerKey = 'flood-fill';
 export interface SourceMeta {

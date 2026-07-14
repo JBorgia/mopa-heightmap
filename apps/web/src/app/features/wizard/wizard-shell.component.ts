@@ -735,7 +735,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       </li>
                     </ol>
                   </div>
-                  @if (targetService.active() && session().imageId) {
+                  @if (targetService.activeShape() && session().imageId) {
                     <div class="stage-badge stage-badge--success">
                       Ready — click Next to generate the depth map
                     </div>
@@ -764,6 +764,14 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                       </p>
                     }
                     <div class="control-group">
+                      <label class="checkbox-label">
+                        <input type="checkbox"
+                          [checked]="sculptokService.removeBackground()"
+                          (change)="sculptokService.removeBackground.set($any($event.target).checked)" />
+                        Sculptok background removal (+2 credits)
+                        <app-info-tip label="Sculptok background removal"
+                          text="Runs Sculptok's own cutout service on the photo before depth generation — usually cleaner than the local cutout, and the result doubles as a pixel-perfect subject mask. The subject is flattened onto black so the depth model reads a clean background."></app-info-tip>
+                      </label>
                       <button type="button"
                         [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight() || creditsExhausted()"
                         (click)="sculptokGenerate()">
@@ -3010,29 +3018,8 @@ export class WizardShellComponent {
       this._shapeImgLoaded(); // subscribe
       this.cropOverlay();     // subscribe
       this.targetService.activeShape(); // subscribe
-      this.targetService.active();      // subscribe — redraw placeholder when target set
       this.session().imageId;           // subscribe — clear placeholder when image loads
       if (canvas) this._drawShapeCanvas(canvas);
-    });
-
-    // Reset canvas overlay when a preset is applied (preset click, not manual size typing).
-    // Reads dimensions from the signals but only reactive to targetService.active() changing
-    // so typing in the size inputs does not interrupt the user's in-progress crop position.
-    effect(() => {
-      void this.targetService.active(); // reactive trigger — preset changed
-      const blankW = untracked(() => this.targetService.printWidthMm());
-      const blankH = untracked(() => this.targetService.printHeightMm());
-      const meta = untracked(() => this.session().sourceMeta);
-      if (!meta || blankW <= 0 || blankH <= 0) return;
-      const targetAspect = blankW / blankH;
-      const imageAspect = meta.w / meta.h;
-      let w: number, h: number;
-      if (targetAspect > imageAspect) {
-        w = 0.85; h = 0.85 * imageAspect / targetAspect;
-      } else {
-        h = 0.85; w = 0.85 * targetAspect / imageAspect;
-      }
-      this.cropOverlay.set({ cx: 0.5, cy: 0.5, w: Math.max(0.15, Math.min(0.95, w)), h: Math.max(0.15, Math.min(0.95, h)) });
     });
 
     // Keep overlay shape correct whenever blank dimensions OR the source photo change.

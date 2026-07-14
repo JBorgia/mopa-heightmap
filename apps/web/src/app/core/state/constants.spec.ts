@@ -37,13 +37,6 @@ import {
 } from '../../features/wizard/wizard-shell.component';
 
 import {
-  STUDIO_SECTION_TITLES,
-  STUDIO_MASK_BACKENDS,
-  HEIGHTMAP_POLARITIES,
-  SIGNATURE_CORNERS,
-} from '../../features/studio/studio-shell.component';
-
-import {
   EXPORT_PNG_FILENAME,
   EXPORT_LBRN2_FILENAME,
   EXPORT_STL_FILENAME,
@@ -189,40 +182,6 @@ describe('wizard-shell constants', () => {
     expect(values).toContain('birefnet');
     expect(values).toContain('rembg');
     expect(values).toContain('threshold');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// studio-shell constants
-// ---------------------------------------------------------------------------
-
-describe('studio-shell constants', () => {
-  it('STUDIO_SECTION_TITLES carries the new sculptok-only sections', () => {
-    expect(STUDIO_SECTION_TITLES).toHaveProperty('mask');
-    expect(STUDIO_SECTION_TITLES).toHaveProperty('input');
-    expect(STUDIO_SECTION_TITLES).toHaveProperty('render');
-    expect(STUDIO_SECTION_TITLES).toHaveProperty('heightmap');
-    expect(STUDIO_SECTION_TITLES).toHaveProperty('refinement');
-    expect(STUDIO_SECTION_TITLES).toHaveProperty('output');
-  });
-
-  it('STUDIO_MASK_BACKENDS lists birefnet / rembg / threshold', () => {
-    const values = STUDIO_MASK_BACKENDS.map((b) => b.value);
-    expect(values).toContain('birefnet');
-    expect(values).toContain('rembg');
-    expect(values).toContain('threshold');
-  });
-
-  it('HEIGHTMAP_POLARITIES covers the three sculptok polarity modes', () => {
-    const values = HEIGHTMAP_POLARITIES.map((o) => o.value);
-    expect(values).toContain('bright_raised');
-    expect(values).toContain('dark_raised');
-    expect(values).toContain('auto');
-  });
-
-  it('SIGNATURE_CORNERS covers all four corners', () => {
-    const values = SIGNATURE_CORNERS.map((o) => o.value);
-    expect(values).toEqual(expect.arrayContaining(['tl', 'tr', 'bl', 'br']));
   });
 });
 

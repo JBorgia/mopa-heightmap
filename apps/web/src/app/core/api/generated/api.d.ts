@@ -289,23 +289,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/targets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Targets */
-        get: operations["targets_targets_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/upload": {
         parameters: {
             query?: never;
@@ -771,7 +754,7 @@ export interface components {
              * @default circle
              * @enum {string}
              */
-            zone_shape: "circle" | "rectangle" | "oval" | "hexagon" | "triangle" | "donut" | "shield";
+            zone_shape: "circle" | "rectangle" | "hexagon" | "triangle" | "donut" | "shield";
             /**
              * Zone Border Width Mm
              * @default 1.5
@@ -1094,6 +1077,11 @@ export interface components {
              */
             draw_hd: "2k" | "4k";
             settings?: components["schemas"]["HeightmapSettings"] | null;
+            /**
+             * Remove Background
+             * @default false
+             */
+            remove_background: boolean;
         };
         /** SculptokGenerateResponse */
         SculptokGenerateResponse: {
@@ -1107,31 +1095,6 @@ export interface components {
             sculptok_input_id?: string | null;
             /** Subject Mask Id */
             subject_mask_id?: string | null;
-        };
-        /** TargetPresetSummary */
-        TargetPresetSummary: {
-            /** Name */
-            name: string;
-            /** Display Name */
-            display_name: string;
-            /** Print Width Mm */
-            print_width_mm: number;
-            /** Print Height Mm */
-            print_height_mm: number;
-            /** Polarity Invert */
-            polarity_invert: boolean;
-            /**
-             * Notes
-             * @default
-             */
-            notes: string;
-            /**
-             * Default Shape
-             * @default rectangle
-             */
-            default_shape: string;
-            /** Available Shapes */
-            available_shapes?: string[];
         };
         /** UploadResponse */
         UploadResponse: {
@@ -1652,26 +1615,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    targets_targets_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TargetPresetSummary"][];
                 };
             };
         };

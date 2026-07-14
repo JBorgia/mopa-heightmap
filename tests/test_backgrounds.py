@@ -87,3 +87,30 @@ def test_generate_pattern_rejects_unknown():
 def test_generate_pattern_round_trips_through_dispatch(name: str):
     arr = generate_pattern(name, 32, 32, scale=1.0, angle=0.0, seed=0)
     assert arr.shape == (32, 32)
+
+
+# ----------------------------------------------------- composite hardening
+
+def test_background_composite_does_not_fade_uncertain_subject_pixels():
+    """Soft inference masks carry 0.3-0.7 uncertainty regions (reflective
+    trophies, busy edges). Blending with the raw alpha FADED those subject
+    pixels toward the fill colour — sculptok then read them as lower
+    relief. The composite must binarise: a pixel keeps full photo
+    brightness (alpha >= 0.5) or takes the fill, with only a ~2 px edge
+    feather."""
+    from PIL import Image
+    from mopa.service import HeightmapService
+
+    svc = HeightmapService()
+    photo = Image.new("RGB", (120, 120), (200, 200, 200))
+    alpha = np.zeros((120, 120), dtype=np.float32)
+    alpha[20:100, 20:100] = 0.6  # uncertain-but-subject region
+
+    out = svc._composite_background(
+        photo, alpha, {"background_pattern": "solid_black"},
+    )
+    arr = np.asarray(out, dtype=np.int32)
+    # Deep inside the subject region: full original brightness (no fade).
+    assert abs(int(arr[60, 60, 0]) - 200) <= 2, f"subject faded to {arr[60, 60, 0]}"
+    # Deep in the background: fully scrubbed to black.
+    assert arr[5, 5, 0] <= 2

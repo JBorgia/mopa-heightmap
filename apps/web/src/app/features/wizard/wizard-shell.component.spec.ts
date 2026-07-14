@@ -80,7 +80,6 @@ function makeApiMock() {
     uploadImage: vi.fn(() => of(UPLOAD_RESPONSE)),
     uploadHeightmap: vi.fn(() => of(HEIGHTMAP_UPLOAD_RESPONSE)),
     listProfiles: vi.fn(() => of([{ name: 'mopa_60w_brass' }, { name: 'mopa_60w_steel' }])),
-    listTargets: vi.fn(() => of([])),
     createMask: vi.fn(() => of(MASK_RESPONSE)),
     clickMask: vi.fn(() => of(MASK_RESPONSE)),
     render: vi.fn(() => of(RENDER_RESPONSE_V1)),

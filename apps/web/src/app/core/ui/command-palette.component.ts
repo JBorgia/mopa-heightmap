@@ -269,13 +269,6 @@ export class CommandPaletteComponent {
         execute: () => this.router.navigate(['/wizard']),
       },
       {
-        id: 'nav-studio',
-        label: 'Go to Studio',
-        group: 'Navigate',
-        keywords: 'studio navigate advanced',
-        execute: () => this.router.navigate(['/studio']),
-      },
-      {
         id: 'nav-step-1',
         label: 'Wizard → Step 1: Upload',
         group: 'Navigate',

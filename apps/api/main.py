@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routes import blob, export, mask, plan, profile, render, sculptok, session, targets, upload, webhooks
+from .routes import blob, export, mask, plan, profile, render, sculptok, session, upload, webhooks
 from .schemas import ApiError, ErrorResponse
 
 # ---------------------------------------------------------------------------
@@ -72,7 +72,6 @@ app.include_router(profile.router)
 app.include_router(render.router)
 app.include_router(sculptok.router)
 app.include_router(session.router)
-app.include_router(targets.router)
 app.include_router(upload.router)
 app.include_router(webhooks.router)
 

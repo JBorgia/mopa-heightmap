@@ -1154,15 +1154,11 @@ def do_plan(
     """Plan the engraving stack.
 
     The depth layer (``form``) is always emitted; refinement passes
-    (color clusters, photo-tonal, signature, pre-clean) are opt-in. Color
-    masks are computed with LAB k-means on the source image when
-    ``settings.n_color_passes`` is set (defaults to 0 = monochrome stack).
+    (photo-tonal, signature, pre-clean) are opt-in.
 
     When the profile contains ``zone_params``, zone passes replace the
     ``form`` pass: field → border → rim → device → exergue in fire order.
     """
-    from mopa.color_quantize import color_masks_for_planner, quantize_to_color_masks
-
     hm = blob_store.load_heightmap(heightmap_id)
     if hm is None:
         raise KeyError(f"Unknown heightmap_id: {heightmap_id!r}")
@@ -1170,14 +1166,6 @@ def do_plan(
     profile_payload = _load_profile_payload(profile_name)
     card_path = _resolve_lightburn_card_path(profile_payload)
     material_profile = load_lightburn_card(card_path)
-
-    color_masks: Dict[str, np.ndarray] = {}
-    n_color = int(getattr(settings, "n_color_passes", 0) or 0) if settings else 0
-    if n_color >= 2:
-        image = get_upload(image_id)
-        if image is not None:
-            clusters = quantize_to_color_masks(image, k=n_color)
-            color_masks = color_masks_for_planner(clusters)
 
     user_toggles: Dict[str, bool] = {}
     if settings:
@@ -1198,7 +1186,6 @@ def do_plan(
         heightmap=hm,
         profile=material_profile,
         user_toggles=user_toggles,
-        mask_per_color=color_masks,
         kind_color_overrides=_profile_kind_color_overrides(profile_payload),
     )
 

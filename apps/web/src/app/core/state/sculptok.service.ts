@@ -93,6 +93,11 @@ export class SculptokService {
     });
   }
 
+  /** Use Sculptok's native background-removal service (+2 credits) before
+   * depth generation. Session-scoped; the cutout's alpha comes back as a
+   * pixel-perfect subject mask. */
+  readonly removeBackground = signal(false);
+
   generate(opts: {
     style?: 'normal' | 'portrait' | 'sketch' | 'pro';
     version?: '1.0' | '1.5';
@@ -124,6 +129,7 @@ export class SculptokService {
         version: opts.version ?? '1.5',
         draw_hd: opts.draw_hd ?? '2k',
         settings: state.pipeline.settings,
+        remove_background: this.removeBackground(),
       })
       .subscribe({
         next: (resp) => {

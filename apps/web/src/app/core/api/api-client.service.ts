@@ -20,7 +20,6 @@ import {
   SculptokCreditsResponse,
   SculptokGenerateRequest,
   SculptokGenerateResponse,
-  TargetPresetSummary,
   UploadResponse,
 } from './api-types';
 
@@ -94,10 +93,6 @@ export class ApiClientService {
       `${API_BASE_URL}/sculptok/generate`,
       request,
     );
-  }
-
-  listTargets(): Observable<TargetPresetSummary[]> {
-    return this.httpClient.get<TargetPresetSummary[]>(`${API_BASE_URL}/targets`);
   }
 
   saveProfile(request: ProfileSaveRequest): Observable<ProfileSummary> {

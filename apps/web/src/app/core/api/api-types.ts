@@ -19,7 +19,6 @@ export type HeightmapSettings = components['schemas']['HeightmapSettings'];
 export type SculptokCreditsResponse = components['schemas']['SculptokCreditsResponse'];
 export type SculptokGenerateRequest = components['schemas']['SculptokGenerateRequest'];
 export type SculptokGenerateResponse = components['schemas']['SculptokGenerateResponse'];
-export type TargetPresetSummary = components['schemas']['TargetPresetSummary'];
 export type ProfileSaveRequest = components['schemas']['ProfileSaveRequest'];
 export type HeightmapUploadResponse = components['schemas']['HeightmapUploadResponse'];
 

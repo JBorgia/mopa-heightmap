@@ -107,8 +107,10 @@ class HeightmapSettings(BaseModel):
     # Zone overlay geometry. Zero disables all zone overlays.
     zone_width_mm: float = Field(0.0, ge=0.0, le=300.0)
     zone_height_mm: float = Field(0.0, ge=0.0, le=300.0)
+    # Shapes the zone-mask generator actually implements — "oval" was
+    # accepted here once but silently coerced to a rectangle downstream.
     zone_shape: Literal[
-        "circle", "rectangle", "oval", "hexagon", "triangle", "donut", "shield",
+        "circle", "rectangle", "hexagon", "triangle", "donut", "shield",
     ] = "circle"
     zone_border_width_mm: float = Field(1.5, ge=0.0, le=20.0)
     zone_rim_width_mm: float = Field(0.5, ge=0.0, le=10.0)
@@ -342,21 +344,6 @@ class ProfileSaveRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Target-object presets (coin / signet_ring / pendant / plaque / portrait)
-# ---------------------------------------------------------------------------
-
-class TargetPresetSummary(BaseModel):
-    name: str
-    display_name: str
-    print_width_mm: float
-    print_height_mm: float
-    polarity_invert: bool
-    notes: str = ""
-    default_shape: str = "rectangle"
-    available_shapes: List[str] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
 # Session WebSocket events
 # ---------------------------------------------------------------------------
 
@@ -391,6 +378,11 @@ class SculptokGenerateRequest(BaseModel):
     # uploads the prepped photo — so the prep settings actually shape
     # what sculptok sees instead of being cosmetic-only.
     settings: Optional[HeightmapSettings] = None
+    # Use Sculptok's own background-removal service (POST /draw/hd/prompt,
+    # +2 credits) instead of / in addition to the local rembg composite.
+    # The bg-removed image (flattened onto black) is what the depth model
+    # then consumes, and its alpha ships back as the subject mask.
+    remove_background: bool = False
 
 
 class SculptokGenerateResponse(BaseModel):

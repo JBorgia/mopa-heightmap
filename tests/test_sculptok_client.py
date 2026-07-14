@@ -15,12 +15,10 @@ import pytest
 
 from mopa.sculptok_client import (
     BASE_URL,
-    PROMPT_PRICE_3D,
     PROMPT_PRICE_HD_FIX,
     PROMPT_PRICE_NORMAL,
     PROMPT_PRICE_PRO,
     PROMPT_PRICE_PRO_4K,
-    PROMPT_PRICE_STL,
     STATUS_COMPLETED,
     STATUS_PROCESSING,
     SculptokAPIError,
@@ -28,8 +26,6 @@ from mopa.sculptok_client import (
     SculptokDepthMapParams,
     SculptokHDFixParams,
     SculptokInsufficientCreditsError,
-    SculptokSTLParams,
-    SculptokThreeDParams,
 )
 
 
@@ -65,8 +61,6 @@ def test_constants_have_documented_values():
     assert PROMPT_PRICE_PRO == 15
     assert PROMPT_PRICE_PRO_4K == 30
     assert PROMPT_PRICE_HD_FIX == 2
-    assert PROMPT_PRICE_3D == 10
-    assert PROMPT_PRICE_STL == 3
 
 
 # --------------------------------------------------------- DepthMapParams
@@ -139,45 +133,6 @@ def test_hd_fix_params_rejects_invalid_remove_back():
         SculptokHDFixParams(remove_back="kawaii")
 
 
-# --------------------------------------------------------- ThreeDParams
-
-def test_3d_params_default_basic():
-    p = SculptokThreeDParams()
-    assert p.hd_fix == "basic"
-    assert p.expected_cost() == PROMPT_PRICE_3D
-    assert p.to_request_body("https://x")["hd_fix"] == "basic"
-
-
-def test_3d_params_rejects_invalid_precision():
-    with pytest.raises(ValueError, match="basic.*standard.*high"):
-        SculptokThreeDParams(hd_fix="ultra")
-
-
-# --------------------------------------------------------- STLParams
-
-def test_stl_params_default_round_trip():
-    p = SculptokSTLParams()
-    body = p.to_request_body("https://x")
-    assert body["image_url"] == "https://x"
-    assert body["width_mm"] == 120.0
-    assert body["min_thickness"] == 1.6
-    assert body["max_thickness"] == 5.0
-    assert body["invert"] is False
-    assert body["scale_image"] == 50.0
-    assert p.expected_cost() == PROMPT_PRICE_STL
-
-
-def test_stl_params_rejects_thickness_inversion():
-    with pytest.raises(ValueError, match="max_thickness must exceed"):
-        SculptokSTLParams(min_thickness=5.0, max_thickness=2.0)
-
-
-def test_stl_params_rejects_out_of_range_width():
-    with pytest.raises(ValueError, match="width_mm"):
-        SculptokSTLParams(width_mm=300.0)
-
-
-# --------------------------------------------------------- credits
 
 def test_get_credits_round_trip():
     sess = MagicMock()
@@ -273,24 +228,6 @@ def test_submit_hd_fix_uses_dedicated_endpoint():
     pid = c.submit_hd_fix("https://image.png", SculptokHDFixParams(remove_back="general"))
     assert pid == "hd1"
     assert sess.post.call_args[0][0] == f"{BASE_URL}/draw/hd/prompt"
-
-
-def test_submit_3d_draw_uses_dedicated_endpoint():
-    sess = MagicMock()
-    sess.post.return_value = _mock_response(_envelope({"promptId": "3d1"}))
-    c = _client_with_session(sess)
-    pid = c.submit_3d_draw("https://image.png")
-    assert pid == "3d1"
-    assert sess.post.call_args[0][0] == f"{BASE_URL}/draw/3d/prompt"
-
-
-def test_submit_stl_uses_dedicated_endpoint():
-    sess = MagicMock()
-    sess.post.return_value = _mock_response(_envelope({"promptId": "stl1"}))
-    c = _client_with_session(sess)
-    pid = c.submit_image_to_stl("https://image.png")
-    assert pid == "stl1"
-    assert sess.post.call_args[0][0] == f"{BASE_URL}/draw/stl/prompt"
 
 
 def test_get_drawing_status_decodes_completion():

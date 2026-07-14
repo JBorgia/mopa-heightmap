@@ -147,9 +147,6 @@ export class SessionTreeService {
   }
 
   private routeFromUrl(url: string): ActiveRoute {
-    if (url.startsWith('/studio')) {
-      return 'studio';
-    }
     if (url.startsWith('/export')) {
       return 'export';
     }

@@ -25,6 +25,7 @@ from mopa.sculptok_client import (
     SculptokClient,
     SculptokDepthMapParams,
     SculptokInsufficientCreditsError,
+    flatten_cutout,
 )
 from mopa.settings import load_settings, resolve_sculptok_api_key
 
@@ -49,6 +50,7 @@ async def sculptok_generate_task(
     draw_hd: bool = True,
     settings: Optional[dict] = None,
     user_id: Optional[str] = None,
+    remove_background: bool = False,
 ) -> dict[str, Any]:
     """ARQ task: generate a Sculptok heightmap for image_id.
 
@@ -92,6 +94,31 @@ async def sculptok_generate_task(
         balance_before = client.get_credits()
     except SculptokAPIError as exc:
         return {"error": f"Sculptok API error (credits): {exc}"}
+
+    # Native Sculptok background removal (+2 credits) — mirrors the sync
+    # route: the flattened cutout becomes the depth-model input; the alpha
+    # ships back as the subject mask.
+    if remove_background:
+        try:
+            cut_path = client.remove_background(
+                photo_path, out_path=_CACHE_DIR / f"{image_id}_cutout.png",
+            )
+        except SculptokInsufficientCreditsError as exc:
+            return {"error": str(exc), "code": "insufficient_credits"}
+        except SculptokAPIError as exc:
+            return {"error": f"Sculptok bg-removal error: {exc}"}
+        except TimeoutError as exc:
+            return {"error": str(exc), "code": "timeout"}
+        flattened, cut_alpha = flatten_cutout(cut_path)
+        flattened.save(photo_path, format="PNG")
+        fbuf = io.BytesIO()
+        flattened.save(fbuf, format="PNG")
+        sculptok_input_id = blob_store.store_bytes(fbuf.getvalue(), "image/png")
+        if cut_alpha is not None:
+            arr16 = (np.clip(cut_alpha, 0.0, 1.0) * 65535).astype(np.uint16)
+            mbuf = io.BytesIO()
+            Image.fromarray(arr16, mode="I;16").save(mbuf, format="PNG")
+            subject_mask_id = blob_store.store_bytes(mbuf.getvalue(), "image/png")
 
     try:
         result_path = client.generate_heightmap(
