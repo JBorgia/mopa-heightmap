@@ -292,11 +292,13 @@ class HeightmapService:
                 from .imgproc.auto_crop import auto_crop_to_aspect
                 cx_frac = float(settings.get("input_auto_crop_cx", 0.5) or 0.5)
                 cy_frac = float(settings.get("input_auto_crop_cy", 0.5) or 0.5)
+                size_val = float(settings.get("input_auto_crop_size", 0.0) or 0.0)
                 conditioned, _strategy = auto_crop_to_aspect(
                     conditioned,
                     target_aspect=aspect,
                     prefer_face=bool(settings.get("input_auto_crop_prefer_face", True)),
                     center_hint=(cx_frac, cy_frac),
+                    size_hint=size_val if size_val > 0 else None,
                 )
 
         image_hash = _hash_pil(conditioned)

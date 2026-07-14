@@ -33,10 +33,15 @@ class HeightmapSettings(BaseModel):
     input_auto_crop: bool = False
     input_auto_crop_aspect: float = Field(0.0, ge=0.0, le=10.0)
     input_auto_crop_prefer_face: bool = True
-    # Fractional center [0,1] for the manual crop overlay; 0.5/0.5 = image
-    # centre (same as auto detection).  Written by the wizard canvas on drag.
-    input_auto_crop_cx: float = Field(0.5, ge=0.0, le=1.0)
-    input_auto_crop_cy: float = Field(0.5, ge=0.0, le=1.0)
+    # Fractional center for the manual crop overlay; 0.5/0.5 = image centre
+    # (same as auto detection). May exceed [0,1] when the crop window hangs
+    # past the photo edge. Written by the wizard canvas on drag.
+    input_auto_crop_cx: float = Field(0.5, ge=-0.5, le=1.5)
+    input_auto_crop_cy: float = Field(0.5, ge=-0.5, le=1.5)
+    # Crop-window size as a fraction of the maximal aspect-fit window.
+    # 0 = auto (maximal, clamped inside the photo — legacy behaviour);
+    # <1 zooms in, >1 zooms out with border-colour padding.
+    input_auto_crop_size: float = Field(0.0, ge=0.0, le=4.0)
 
     # External heightmap source (required at render time).
     external_heightmap_path: str = ""
@@ -117,10 +122,13 @@ class HeightmapSettings(BaseModel):
     field_pattern_angle: float = Field(0.0, ge=-180.0, le=180.0)
     field_pattern_depth: float = Field(0.70, ge=0.0, le=1.0)
 
-    # Rim overlay — beaded or reeded (milled) ring inside the outer edge.
-    rim_pattern: Literal["none", "beaded", "reeded"] = "none"
+    # Rim overlay — decorative ring inside the outer edge.
+    rim_pattern: Literal[
+        "none", "beaded", "reeded", "denticled", "rope", "serrated",
+    ] = "none"
     rim_bead_count: int = Field(72, ge=8, le=360)
     rim_reed_count: int = Field(120, ge=16, le=720)
+    rim_element_count: int = Field(96, ge=8, le=720)
     rim_pattern_depth: float = Field(1.0, ge=0.0, le=1.0)
 
     # Border overlay — ornamental annulus between rim and field.

@@ -139,6 +139,7 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   input_auto_crop_prefer_face: true,
   input_auto_crop_cx: 0.5,
   input_auto_crop_cy: 0.5,
+  input_auto_crop_size: 0.0,
 
   // External heightmap source. Set by upload / sculptok auto-pull,
   // not directly editable in the UI.
@@ -206,6 +207,7 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   rim_pattern: 'none',
   rim_bead_count: 72,
   rim_reed_count: 120,
+  rim_element_count: 96,
   rim_pattern_depth: 1.0,
 
   // Border overlay.

@@ -112,6 +112,125 @@ def reeded_rim_overlay(
 
 
 # ---------------------------------------------------------------------------
+# Rim: denticles (classic coin teeth)
+# ---------------------------------------------------------------------------
+
+def denticled_rim_overlay(
+    h: int,
+    w: int,
+    *,
+    cx: float,
+    cy: float,
+    outer_r_px: float,
+    rim_width_px: float,
+    element_count: int = 96,
+    depth: float = 1.0,
+) -> np.ndarray:
+    """Denticles — the rectangular teeth ringing classic coin rims.
+
+    Raised radial blocks with a ~55% duty cycle and soft shoulders.  The
+    teeth grow from the outer edge inward and stop just short of the
+    rim's inner boundary so each tooth reads as a discrete block.
+    """
+    xs = np.arange(w, dtype=np.float32) - cx
+    ys = (np.arange(h, dtype=np.float32) - cy)[:, None]
+    r = np.sqrt(xs * xs + ys * ys)
+    theta = np.arctan2(ys, xs)
+
+    n = max(int(element_count), 8)
+    frac = ((theta / (2.0 * math.pi) + 0.5) * n) % 1.0
+
+    duty, edge = 0.55, 0.10
+    up = np.clip(frac / edge, 0.0, 1.0)
+    down = np.clip((duty - frac) / edge + 1.0, 0.0, 1.0)
+    tooth = np.minimum(up, down)
+    tooth = tooth * tooth * (3.0 - 2.0 * tooth)  # smoothstep shoulders
+
+    # Radial taper: teeth start a little inside the rim's inner boundary.
+    inner = outer_r_px - rim_width_px
+    r_norm = np.clip((r - inner) / max(rim_width_px, 1.0), 0.0, 1.0)
+    radial = np.clip((r_norm - 0.12) / 0.10, 0.0, 1.0)
+
+    out = tooth * radial * float(np.clip(depth, 0.0, 1.0))
+    return np.clip(out, 0.0, 1.0).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
+# Rim: rope cable
+# ---------------------------------------------------------------------------
+
+def rope_rim_overlay(
+    h: int,
+    w: int,
+    *,
+    cx: float,
+    cy: float,
+    outer_r_px: float,
+    rim_width_px: float,
+    element_count: int = 90,
+    depth: float = 1.0,
+) -> np.ndarray:
+    """Twisted cable confined to the rim band — a rope rim.
+
+    Same helical construction as the border rope but tuned for the much
+    narrower rim: two strands, tighter twist, rounded Gaussian profile.
+    """
+    xs = np.arange(w, dtype=np.float32) - cx
+    ys = (np.arange(h, dtype=np.float32) - cy)[:, None]
+    r = np.sqrt(xs * xs + ys * ys)
+    theta = np.arctan2(ys, xs)
+
+    inner = outer_r_px - rim_width_px
+    r_norm = (r - inner) / max(rim_width_px, 1.0)
+    in_band = (r >= inner) & (r <= outer_r_px)
+
+    n = max(int(element_count), 8)
+    sigma = 0.17
+    out = np.zeros((h, w), dtype=np.float32)
+    for i in range(2):
+        centre = 0.5 + 0.4 * np.sin(theta * n + math.pi * i)
+        val = np.exp(-((r_norm - centre) ** 2) / (2.0 * sigma ** 2)).astype(np.float32)
+        np.maximum(out, val, out=out)
+
+    out *= float(np.clip(depth, 0.0, 1.0))
+    out[~in_band] = 0.0
+    return np.clip(out, 0.0, 1.0).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
+# Rim: serrated (sharp triangular teeth)
+# ---------------------------------------------------------------------------
+
+def serrated_rim_overlay(
+    h: int,
+    w: int,
+    *,
+    cx: float,
+    cy: float,
+    outer_r_px: float,
+    rim_width_px: float,
+    element_count: int = 80,
+    depth: float = 1.0,
+) -> np.ndarray:
+    """Serrations — sharp triangular ridges like a serrated coin edge.
+
+    Triangle wave around the circumference, sharpened so the valleys are
+    wider than the crests (each ridge reads as a distinct point).
+    """
+    xs = np.arange(w, dtype=np.float32) - cx
+    ys = (np.arange(h, dtype=np.float32) - cy)[:, None]
+    theta = np.arctan2(ys, xs)
+
+    n = max(int(element_count), 8)
+    frac = ((theta / (2.0 * math.pi) + 0.5) * n) % 1.0
+    tri = 1.0 - np.abs(2.0 * frac - 1.0)
+    sharp = np.power(tri, 1.6)  # narrow the crest, widen the valley
+
+    out = sharp * float(np.clip(depth, 0.0, 1.0))
+    return np.clip(out, 0.0, 1.0).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
 # Border: rope twist
 # ---------------------------------------------------------------------------
 
@@ -439,10 +558,12 @@ def apply_zone_overlays(
         field_pattern_depth    — 0-1, how deep the field floor engraves (default 0.70)
 
     Rim:
-        rim_pattern            — "none" | "beaded" | "reeded"
+        rim_pattern            — "none" | "beaded" | "reeded" | "denticled" |
+                                 "rope" | "serrated"
         rim_bead_count         — integer, beads around circumference (default 72)
         rim_reed_count         — integer, reeds around circumference (default 120)
-        rim_pattern_depth      — peak bead/reed height in [0,1] (default 1.0)
+        rim_element_count      — integer, denticle/rope/serration repeats (default 96)
+        rim_pattern_depth      — peak element height in [0,1] (default 1.0)
 
     Border:
         border_pattern         — "none" | "rope_twist" | "acanthus_wave" |
@@ -542,6 +663,22 @@ def apply_zone_overlays(
             rim_width_px=rim_width_px,
             reed_count=int(settings.get("rim_reed_count", 120)),
             reed_depth=float(settings.get("rim_pattern_depth", 1.0)),
+        )
+        result = _composite(result, overlay, zones["rim"], depth=1.0)
+
+    elif rim_pattern in ("denticled", "rope", "serrated"):
+        _RIM_FNS = {
+            "denticled": denticled_rim_overlay,
+            "rope": rope_rim_overlay,
+            "serrated": serrated_rim_overlay,
+        }
+        overlay = _RIM_FNS[rim_pattern](
+            h, w,
+            cx=cx, cy=cy,
+            outer_r_px=outer_r_px,
+            rim_width_px=rim_width_px,
+            element_count=int(settings.get("rim_element_count", 96)),
+            depth=float(settings.get("rim_pattern_depth", 1.0)),
         )
         result = _composite(result, overlay, zones["rim"], depth=1.0)
 

@@ -95,3 +95,42 @@ def test_auto_crop_to_aspect_portrait_target():
     out, _ = auto_crop_to_aspect(img, target_aspect=0.5)
     out_w, out_h = out.size
     assert pytest.approx(out_w / out_h, rel=0.05) == 0.5
+
+
+# ----------------------------------------------------------- size_hint zoom
+
+def test_auto_crop_size_hint_zoom_in_shrinks_window():
+    img = _flat_image(100, 100)
+    out, _ = auto_crop_to_aspect(
+        img, target_aspect=1.0, center_hint=(0.51, 0.51), size_hint=0.5,
+    )
+    assert out.size == (50, 50)
+
+
+def test_auto_crop_size_hint_zoom_out_pads_beyond_image():
+    # Red image: padding must come from the border-median colour (red).
+    img = Image.new("RGB", (100, 100), color=(200, 30, 30))
+    out, strategy = auto_crop_to_aspect(
+        img, target_aspect=1.0, center_hint=(0.51, 0.51), size_hint=1.5,
+    )
+    assert strategy == "hint"
+    assert out.size == (150, 150)
+    # Corner pixel is padding — matches the border colour.
+    assert out.getpixel((0, 0)) == (200, 30, 30)
+
+
+def test_auto_crop_size_hint_off_center_overhang_respects_position():
+    img = Image.new("RGB", (100, 100), color=(10, 200, 10))
+    # Window centred near the right edge at full size → right side padded,
+    # not silently clamped back inside the image.
+    out, _ = auto_crop_to_aspect(
+        img, target_aspect=1.0, center_hint=(0.9, 0.5), size_hint=1.0,
+    )
+    assert out.size == (100, 100)
+    assert out.getpixel((99, 50)) == (10, 200, 10)  # padding, border colour
+
+
+def test_auto_crop_without_size_hint_keeps_legacy_clamping():
+    img = _flat_image(100, 100)
+    out, _ = auto_crop_to_aspect(img, target_aspect=1.0, center_hint=(0.9, 0.5))
+    assert out.size == (100, 100)

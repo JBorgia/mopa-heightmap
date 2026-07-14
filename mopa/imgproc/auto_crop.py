@@ -81,23 +81,40 @@ def find_saliency_centre(image: Image.Image) -> Tuple[int, int]:
         return w // 2, h // 2
 
 
+def _border_median_color(arr: np.ndarray) -> Tuple[int, int, int]:
+    """Median RGB of the 1-px image border — used to pad zoom-out crops so
+    the padding blends with the photo's own background."""
+    border = np.concatenate([arr[0, :, :], arr[-1, :, :], arr[:, 0, :], arr[:, -1, :]])
+    med = np.median(border, axis=0)
+    return tuple(int(v) for v in med)  # type: ignore[return-value]
+
+
 def auto_crop_to_aspect(
     image: Image.Image,
     *,
     target_aspect: float,
     prefer_face: bool = True,
     center_hint: Optional[Tuple[float, float]] = None,
+    size_hint: Optional[float] = None,
 ) -> Tuple[Image.Image, str]:
     """Crop ``image`` to ``target_aspect`` (width / height).
 
     Parameters
     ----------
     center_hint
-        ``(cx_frac, cy_frac)`` in [0, 1] image fractions.  When provided
-        (and both values differ from the default 0.5/0.5 centre), the hint
+        ``(cx_frac, cy_frac)`` in image fractions (may exceed [0, 1] when
+        the crop window extends beyond the photo).  When provided (and
+        both values differ from the default 0.5/0.5 centre), the hint
         overrides face/saliency detection so the user's canvas overlay
         position is respected.  At exactly 0.5/0.5 the hint is ignored and
         the normal face → saliency → centre fallback chain runs.
+    size_hint
+        Crop-window size as a fraction of the *maximal* aspect-fit window.
+        ``1.0`` = the largest window that fits (legacy behaviour),
+        ``< 1`` = tighter crop (zoom in), ``> 1`` = window larger than the
+        photo (zoom out) — out-of-bounds area is padded with the photo's
+        border-median colour.  ``None``/``0`` = maximal window with the
+        window clamped inside the image.
 
     Returns ``(cropped, strategy)`` where ``strategy`` is one of
     ``"hint"``, ``"face"``, ``"saliency"``, ``"center"``.
@@ -144,6 +161,25 @@ def auto_crop_to_aspect(
         crop_h = h
         crop_w = int(round(crop_h * target_aspect))
         crop_w = min(crop_w, w)
+
+    if size_hint is not None and size_hint > 0:
+        # Scale the maximal window by the user's zoom. The window is placed
+        # exactly where the canvas overlay put it (no clamping); any part
+        # falling outside the photo is padded so zoom-out works.
+        scale = float(np.clip(size_hint, 0.05, 4.0))
+        crop_w = max(16, int(round(crop_w * scale)))
+        crop_h = max(16, int(round(crop_h * scale)))
+        x0 = cx - crop_w // 2
+        y0 = cy - crop_h // 2
+        if x0 < 0 or y0 < 0 or x0 + crop_w > w or y0 + crop_h > h:
+            rgb = image.convert("RGB")
+            out = Image.new("RGB", (crop_w, crop_h), _border_median_color(arr))
+            ix0, iy0 = max(0, x0), max(0, y0)
+            ix1, iy1 = min(w, x0 + crop_w), min(h, y0 + crop_h)
+            if ix1 > ix0 and iy1 > iy0:
+                out.paste(rgb.crop((ix0, iy0, ix1, iy1)), (ix0 - x0, iy0 - y0))
+            return out, strategy
+        return image.crop((x0, y0, x0 + crop_w, y0 + crop_h)), strategy
 
     half_w = crop_w // 2
     half_h = crop_h // 2

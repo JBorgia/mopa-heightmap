@@ -27,6 +27,7 @@ import { RenderService } from '../../core/state/render.service';
 import { SCULPTOK_STAGE_LABELS, SculptokService } from '../../core/state/sculptok.service';
 import { SessionService } from '../../core/state/session.service';
 import { SessionTreeService } from '../../core/state/session-tree.service';
+import { SettingsPresetsService } from '../../core/state/settings-presets.service';
 import { TargetService } from '../../core/state/target.service';
 import { MaskBackend } from '../../core/state/studio-state';
 
@@ -290,7 +291,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         <div class="control-group">
                           <label>Rim pattern
                             <app-info-tip label="Rim pattern"
-                              text="Decorative treatment for the outermost rim band. 'Beaded' places hemispherical bosses equally spaced around the circumference; 'Reeded' cuts radial milled-edge grooves like a coin edge laid flat."></app-info-tip>
+                              text="Decorative treatment for the outermost rim band. 'Beaded' places hemispherical bosses; 'Reeded' cuts radial milled-edge grooves; 'Denticled' rings classic coin teeth; 'Rope' twists a cable around the edge; 'Serrated' cuts sharp triangular points."></app-info-tip>
                           </label>
                           <select id="wiz-rim-pattern"
                             [value]="pipeline().settings.rim_pattern"
@@ -298,6 +299,9 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                             <option value="none">None</option>
                             <option value="beaded">Beaded</option>
                             <option value="reeded">Reeded (milled edge)</option>
+                            <option value="denticled">Denticled (coin teeth)</option>
+                            <option value="rope">Rope cable</option>
+                            <option value="serrated">Serrated</option>
                           </select>
                         </div>
 
@@ -326,6 +330,22 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                               <span class="range-readout">{{ pipeline().settings.rim_reed_count ?? 120 }}</span>
                             </label>
                             <label>Reed height
+                              <input type="range" min="0" max="1" step="0.05"
+                                [value]="pipeline().settings.rim_pattern_depth ?? 1"
+                                (input)="renderService.patchSettings('rim_pattern_depth', +$any($event.target).value)" />
+                              <span class="range-readout">{{ ((pipeline().settings.rim_pattern_depth ?? 1) * 100) | number:'1.0-0' }}%</span>
+                            </label>
+                          </div>
+                        }
+                        @if (rimUsesElementCount()) {
+                          <div class="control-group indent">
+                            <label>Element count
+                              <input type="range" min="8" max="720" step="4"
+                                [value]="pipeline().settings.rim_element_count ?? 96"
+                                (input)="renderService.patchSettings('rim_element_count', +$any($event.target).value)" />
+                              <span class="range-readout">{{ pipeline().settings.rim_element_count ?? 96 }}</span>
+                            </label>
+                            <label>Height
                               <input type="range" min="0" max="1" step="0.05"
                                 [value]="pipeline().settings.rim_pattern_depth ?? 1"
                                 (input)="renderService.patchSettings('rim_pattern_depth', +$any($event.target).value)" />
@@ -399,38 +419,46 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                     </div>
                   </details>
 
-                  <!-- 5. Quick presets -->
-                  @if (targetService.presets().length > 0) {
-                    <details class="collapsible-section" open>
-                      <summary class="collapsible-summary">
-                        Quick presets <span class="step-tag">auto-fill shape, size & direction</span>
-                      </summary>
-                      <div class="collapsible-body">
-                        <p class="muted small">Tap a preset to auto-fill the shape, size, and polarity above. You can adjust any field afterwards.</p>
-                        <div class="target-chips" role="group" aria-label="Target preset">
-                          @for (preset of targetService.presets(); track preset.name) {
+                  <!-- 5. My presets — user-saved settings snapshots -->
+                  <details class="collapsible-section" open>
+                    <summary class="collapsible-summary">
+                      My presets <span class="step-tag">save & reuse your settings</span>
+                    </summary>
+                    <div class="collapsible-body">
+                      <p class="muted small">
+                        Your settings persist automatically between sessions.
+                        Save a named snapshot here to switch between jobs — it
+                        captures the blank shape, size, patterns and every knob.
+                      </p>
+                      <div class="preset-save-row">
+                        <input type="text" placeholder="Preset name…" maxlength="40"
+                          [value]="presetName()"
+                          (input)="presetName.set($any($event.target).value)"
+                          (keyup.enter)="saveUserPreset()" />
+                        <button type="button" class="secondary-button"
+                          [disabled]="!presetName().trim()"
+                          (click)="saveUserPreset()">Save current settings</button>
+                      </div>
+                      @if (settingsPresets.presets().length > 0) {
+                        <div class="target-chips" role="group" aria-label="Saved presets">
+                          @for (preset of settingsPresets.presets(); track preset.name) {
                             <button
                               type="button"
                               class="target-chip"
-                              [class.active]="targetService.active() === preset.name"
-                              (click)="onTargetSelect(preset.name)"
+                              (click)="applyUserPreset(preset.name)"
                             >
-                              <span class="chip-name">{{ preset.display_name }}</span>
-                              <span class="chip-size">{{ preset.print_width_mm | number:'1.0-0' }}×{{ preset.print_height_mm | number:'1.0-0' }} mm</span>
-                              @if (preset.polarity_invert) {
-                                <span class="chip-meta">inverted</span>
-                              }
+                              <span class="chip-name">{{ preset.name }}</span>
+                              <span class="chip-size">{{ preset.savedAt.slice(0, 10) }}</span>
+                              <span class="chip-delete" role="button" aria-label="Delete preset"
+                                (click)="$event.stopPropagation(); deleteUserPreset(preset.name)">×</span>
                             </button>
                           }
                         </div>
-                        @if (targetService.activePreset(); as preset) {
-                          @if (preset.notes) {
-                            <p class="muted small preset-notes">{{ preset.notes }}</p>
-                          }
-                        }
-                      </div>
-                    </details>
-                  }
+                      } @else {
+                        <p class="muted small">No saved presets yet.</p>
+                      }
+                    </div>
+                  </details>
 
                   @if (!targetService.activeShape()) {
                     <p class="muted small required-hint">Select a shape to continue.</p>
@@ -653,7 +681,6 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                             {{ shapeLabel(targetService.activeShape()!) }}
                             · {{ targetService.printWidthMm() | number:'1.0-1' }}×{{ targetService.printHeightMm() | number:'1.0-1' }} mm
                             · {{ pipeline().settings.polarity_invert ? 'inverted' : 'normal' }}
-                            @if (targetService.activePreset(); as preset) { — {{ preset.display_name }} preset }
                             ✓
                           } @else {
                             <button type="button" class="link-button" (click)="selectPage(0)">Configure blank on step 1 →</button>
@@ -2389,10 +2416,31 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       opacity: 0.85;
     }
 
-    .preset-notes {
-      border-left: 3px solid var(--border-default);
-      padding-left: 0.6rem;
-      margin-top: -0.25rem;
+    .preset-save-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.6rem;
+    }
+
+    .preset-save-row input[type="text"] {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .chip-delete {
+      margin-left: 0.35rem;
+      padding: 0 0.3rem;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      line-height: 1.2;
+      opacity: 0.55;
+      align-self: center;
+    }
+
+    .chip-delete:hover {
+      opacity: 1;
+      background: color-mix(in srgb, var(--action-bg) 25%, transparent);
     }
 
     .target-chip.active {
@@ -2680,6 +2728,7 @@ export class WizardShellComponent {
   protected readonly renderService = inject(RenderService);
   protected readonly exportService = inject(ExportService);
   protected readonly targetService = inject(TargetService);
+  protected readonly settingsPresets = inject(SettingsPresetsService);
   protected readonly authService = inject(AuthService);
   private readonly apiClient = inject(ApiClientService);
   protected readonly maskService = inject(MaskService);
@@ -2845,7 +2894,6 @@ export class WizardShellComponent {
   constructor() {
     this.sessionService.loadProfiles();
     this.sculptokService.loadCredits();
-    this.targetService.loadPresets();
 
     // Tick the relative-time clock once per second — only in the browser,
     // and tear down on destroy so the test harness doesn't leak intervals.
@@ -2988,17 +3036,23 @@ export class WizardShellComponent {
     });
 
     // Sync auto-crop parameters from overlay whenever overlay changes.
-    // Writes aspect + position so the backend respects where the user
-    // positioned the canvas overlay, not just the aspect ratio.
+    // Writes aspect + position + zoom size so the backend crops exactly
+    // the window the user drew — including windows hanging past the
+    // photo edge (backend pads those with the border colour).
     effect(() => {
       const ov = this.cropOverlay();
       const meta = this.session().sourceMeta;
       if (!meta || ov.w <= 0 || ov.h <= 0) return;
       const aspect = (ov.w * meta.w) / (ov.h * meta.h);
+      const imageAspect = meta.w / meta.h;
+      // Overlay width as a fraction of the maximal aspect-fit window.
+      const maxWFrac = aspect >= imageAspect ? 1 : aspect / imageAspect;
+      const size = Math.max(0.05, Math.min(4, ov.w / maxWFrac));
       untracked(() => {
         this.renderService.patchSettings('input_auto_crop_aspect', aspect);
-        this.renderService.patchSettings('input_auto_crop_cx', ov.cx);
-        this.renderService.patchSettings('input_auto_crop_cy', ov.cy);
+        this.renderService.patchSettings('input_auto_crop_cx', Math.max(-0.5, Math.min(1.5, ov.cx)));
+        this.renderService.patchSettings('input_auto_crop_cy', Math.max(-0.5, Math.min(1.5, ov.cy)));
+        this.renderService.patchSettings('input_auto_crop_size', size);
       });
     });
 
@@ -3208,8 +3262,44 @@ export class WizardShellComponent {
     this.sculptokGenerate();
   }
 
-  protected onTargetSelect(name: string): void {
-    this.targetService.apply(name);
+  /** Two-way binding target for the preset-name input. */
+  protected readonly presetName = signal('');
+
+  protected saveUserPreset(): void {
+    const name = this.presetName().trim();
+    if (!name) {
+      return;
+    }
+    if (this.settingsPresets.saveCurrent(name)) {
+      this.presetName.set('');
+      this.sessionTree.addToast({
+        id: crypto.randomUUID(),
+        severity: 'success',
+        summary: 'Preset saved',
+        detail: `"${name}" now holds your current settings.`,
+      });
+    }
+  }
+
+  protected applyUserPreset(name: string): void {
+    if (this.settingsPresets.apply(name)) {
+      this.sessionTree.addToast({
+        id: crypto.randomUUID(),
+        severity: 'info',
+        summary: 'Preset applied',
+        detail: `Settings restored from "${name}". Re-render to see the result.`,
+      });
+    }
+  }
+
+  protected deleteUserPreset(name: string): void {
+    this.settingsPresets.remove(name);
+  }
+
+  /** True for rim patterns tuned by the shared element-count slider. */
+  protected rimUsesElementCount(): boolean {
+    const p = this.pipeline().settings.rim_pattern;
+    return p === 'denticled' || p === 'rope' || p === 'serrated';
   }
 
   protected onWidthMmChange(event: Event): void {
@@ -3416,27 +3506,30 @@ export class WizardShellComponent {
       return;
     }
 
-    const W = Math.min(800, meta.w);
-    const H = Math.round(W * meta.h / meta.w);
+    // Margin viewport: the photo sits inside a padded canvas so the crop
+    // overlay can extend BEYOND the photo (zoom out) — the backend pads
+    // that area with the photo's border colour at crop time.
+    const { imgW, imgH, offX, offY, W, H } = this._canvasMetrics(meta);
     if (canvas.width !== W) canvas.width = W;
     if (canvas.height !== H) canvas.height = H;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#141414';
+    ctx.fillRect(0, 0, W, H);
 
     if (this._shapeImgLoaded() && this._shapeImg.naturalWidth > 0) {
-      ctx.drawImage(this._shapeImg, 0, 0, W, H);
+      ctx.drawImage(this._shapeImg, offX, offY, imgW, imgH);
     } else {
       ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillRect(offX, offY, imgW, imgH);
     }
 
     const ov = this.cropOverlay();
-    const pw = W * ov.w;
-    const ph = H * ov.h;
-    const px = W * ov.cx - pw / 2;
-    const py = H * ov.cy - ph / 2;
+    const pw = imgW * ov.w;
+    const ph = imgH * ov.h;
+    const px = offX + imgW * ov.cx - pw / 2;
+    const py = offY + imgH * ov.cy - ph / 2;
 
     // Darken the entire canvas, then redraw the image clipped to the shape
     // interior so the crop area appears bright and the outside is dimmed.
@@ -3449,7 +3542,7 @@ export class WizardShellComponent {
       ctx.save();
       this._pathForShape(ctx, shape, px, py, pw, ph);
       ctx.clip();
-      ctx.drawImage(this._shapeImg, 0, 0, W, H);
+      ctx.drawImage(this._shapeImg, offX, offY, imgW, imgH);
       ctx.restore();
     }
 
@@ -3520,9 +3613,35 @@ export class WizardShellComponent {
     return [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
   }
 
+  /** Padded-viewport geometry: the photo is drawn inset by MARGIN so the
+   * crop overlay can extend past its edges. Overlay coords stay in IMAGE
+   * fractions — the margin only affects canvas-pixel mapping. */
+  private static readonly CANVAS_MARGIN = 0.25;
+
+  private _canvasMetrics(meta: { w: number; h: number }): {
+    imgW: number; imgH: number; offX: number; offY: number; W: number; H: number;
+  } {
+    const M = WizardShellComponent.CANVAS_MARGIN;
+    const imgW = Math.min(640, meta.w);
+    const imgH = Math.round(imgW * meta.h / meta.w);
+    const offX = Math.round(imgW * M);
+    const offY = Math.round(imgH * M);
+    return { imgW, imgH, offX, offY, W: imgW + 2 * offX, H: imgH + 2 * offY };
+  }
+
+  /** Overlay w/h ratio (in image-fraction space) that matches the blank's
+   * physical aspect, or null when the blank isn't configured yet. */
+  private _overlayRatioWH(meta: { w: number; h: number }): number | null {
+    const bw = this.targetService.printWidthMm();
+    const bh = this.targetService.printHeightMm();
+    if (bw <= 0 || bh <= 0) return null;
+    return (bw / bh) * (meta.h / meta.w);
+  }
+
   protected onShapePointerDown(event: PointerEvent): void {
     const canvas = this._shapeCanvas();
-    if (!canvas) return;
+    const meta = this.session().sourceMeta;
+    if (!canvas || !meta) return;
     event.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const sx = canvas.width / rect.width;
@@ -3531,9 +3650,9 @@ export class WizardShellComponent {
     const my = (event.clientY - rect.top) * sy;
 
     const ov = this.cropOverlay();
-    const W = canvas.width, H = canvas.height;
-    const pw = W * ov.w, ph = H * ov.h;
-    const px = W * ov.cx - pw / 2, py = H * ov.cy - ph / 2;
+    const { imgW, imgH, offX, offY } = this._canvasMetrics(meta);
+    const pw = imgW * ov.w, ph = imgH * ov.h;
+    const px = offX + imgW * ov.cx - pw / 2, py = offY + imgH * ov.cy - ph / 2;
     const HIT = 14;
 
     const corners: [number, number, 'tl' | 'tr' | 'bl' | 'br'][] = [
@@ -3556,33 +3675,60 @@ export class WizardShellComponent {
   protected onShapePointerMove(event: PointerEvent): void {
     if (!this._dragState) return;
     const canvas = this._shapeCanvas();
-    if (!canvas) return;
+    const meta = this.session().sourceMeta;
+    if (!canvas || !meta) return;
     const rect = canvas.getBoundingClientRect();
     const sx = canvas.width / rect.width;
     const sy = canvas.height / rect.height;
     const mx = (event.clientX - rect.left) * sx;
     const my = (event.clientY - rect.top) * sy;
-    const W = canvas.width, H = canvas.height;
+    const { imgW, imgH } = this._canvasMetrics(meta);
+    const M = WizardShellComponent.CANVAS_MARGIN;
     const { kind, startX, startY, startOverlay: so } = this._dragState;
-    const dx = (mx - startX) / W;
-    const dy = (my - startY) / H;
+    const dx = (mx - startX) / imgW;
+    const dy = (my - startY) / imgH;
     const MIN = 0.1;
     let { cx, cy, w, h } = so;
 
     if (kind === 'move') {
-      cx = Math.max(w / 2, Math.min(1 - w / 2, so.cx + dx));
-      cy = Math.max(h / 2, Math.min(1 - h / 2, so.cy + dy));
+      // The overlay may hang past the photo edge, up to the margin.
+      cx = Math.max(w / 2 - M, Math.min(1 + M - w / 2, so.cx + dx));
+      cy = Math.max(h / 2 - M, Math.min(1 + M - h / 2, so.cy + dy));
     } else {
       // Anchor the opposite corner and resize from the dragged corner.
       const l = so.cx - so.w / 2, r = so.cx + so.w / 2;
       const t = so.cy - so.h / 2, b = so.cy + so.h / 2;
+      const ratio = this._overlayRatioWH(meta);
       let nl = l, nr = r, nt = t, nb = b;
       if (kind === 'tl') { nl = Math.min(r - MIN, l + dx); nt = Math.min(b - MIN, t + dy); }
       if (kind === 'tr') { nr = Math.max(l + MIN, r + dx); nt = Math.min(b - MIN, t + dy); }
       if (kind === 'bl') { nl = Math.min(r - MIN, l + dx); nb = Math.max(t + MIN, b + dy); }
       if (kind === 'br') { nr = Math.max(l + MIN, r + dx); nb = Math.max(t + MIN, b + dy); }
-      nl = Math.max(0, nl); nr = Math.min(1, nr);
-      nt = Math.max(0, nt); nb = Math.min(1, nb);
+      nl = Math.max(-M, nl); nr = Math.min(1 + M, nr);
+      nt = Math.max(-M, nt); nb = Math.min(1 + M, nb);
+      w = nr - nl; h = nb - nt;
+
+      if (ratio !== null) {
+        // Lock the overlay to the blank's aspect: the dominant drag axis
+        // wins, the other follows, capped by the space available between
+        // the anchored corner and the padded viewport edge.
+        if (Math.abs(w - so.w) >= Math.abs(h - so.h)) {
+          h = w / ratio;
+        } else {
+          w = h * ratio;
+        }
+        w = Math.max(w, MIN, MIN * ratio);
+        h = w / ratio;
+        const maxW = kind === 'tl' || kind === 'bl' ? r + M : 1 + M - l;
+        const maxH = kind === 'tl' || kind === 'tr' ? b + M : 1 + M - t;
+        const scale = Math.min(1, maxW / w, maxH / h);
+        w *= scale;
+        h *= scale;
+        nl = kind === 'tl' || kind === 'bl' ? r - w : l;
+        nr = kind === 'tl' || kind === 'bl' ? r : l + w;
+        nt = kind === 'tl' || kind === 'tr' ? b - h : t;
+        nb = kind === 'tl' || kind === 'tr' ? b : t + h;
+      }
       w = nr - nl; h = nb - nt;
       cx = nl + w / 2; cy = nt + h / 2;
     }

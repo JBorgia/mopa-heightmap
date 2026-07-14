@@ -599,6 +599,11 @@ export interface components {
              */
             input_auto_crop_cy: number;
             /**
+             * Input Auto Crop Size
+             * @default 0
+             */
+            input_auto_crop_size: number;
+            /**
              * External Heightmap Path
              * @default
              */
@@ -799,7 +804,7 @@ export interface components {
              * @default none
              * @enum {string}
              */
-            rim_pattern: "none" | "beaded" | "reeded";
+            rim_pattern: "none" | "beaded" | "reeded" | "denticled" | "rope" | "serrated";
             /**
              * Rim Bead Count
              * @default 72
@@ -810,6 +815,11 @@ export interface components {
              * @default 120
              */
             rim_reed_count: number;
+            /**
+             * Rim Element Count
+             * @default 96
+             */
+            rim_element_count: number;
             /**
              * Rim Pattern Depth
              * @default 1

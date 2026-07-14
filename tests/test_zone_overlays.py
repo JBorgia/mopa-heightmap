@@ -16,10 +16,13 @@ from mopa.zone_overlays import (
     acanthus_wave_overlay,
     apply_zone_overlays,
     beaded_rim_overlay,
+    denticled_rim_overlay,
     greek_key_overlay,
     laurel_wreath_overlay,
     reeded_rim_overlay,
+    rope_rim_overlay,
     rope_twist_overlay,
+    serrated_rim_overlay,
 )
 
 H = W = 240
@@ -32,6 +35,9 @@ BORDER = dict(**GEO, border_width_px=22.0)
 @pytest.mark.parametrize("fn,kwargs", [
     (beaded_rim_overlay, GEO),
     (reeded_rim_overlay, GEO),
+    (denticled_rim_overlay, GEO),
+    (rope_rim_overlay, GEO),
+    (serrated_rim_overlay, GEO),
     (rope_twist_overlay, BORDER),
     (acanthus_wave_overlay, BORDER),
     (greek_key_overlay, BORDER),
@@ -78,6 +84,9 @@ def _flat_hm() -> np.ndarray:
 @pytest.mark.parametrize("settings", [
     {"rim_pattern": "beaded"},
     {"rim_pattern": "reeded"},
+    {"rim_pattern": "denticled"},
+    {"rim_pattern": "rope"},
+    {"rim_pattern": "serrated"},
     {"border_pattern": "rope_twist"},
     {"border_pattern": "acanthus_wave"},
     {"border_pattern": "greek_key"},
