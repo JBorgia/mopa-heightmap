@@ -16,6 +16,7 @@ async def render(req: RenderRequest) -> RenderResponse:
             image_id=req.image_id,
             settings=req.settings,
             profile_name=req.profile_name,
+            mask_id=req.mask_id,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

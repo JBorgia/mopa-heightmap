@@ -589,6 +589,16 @@ export interface components {
              */
             input_auto_crop_prefer_face: boolean;
             /**
+             * Input Auto Crop Cx
+             * @default 0.5
+             */
+            input_auto_crop_cx: number;
+            /**
+             * Input Auto Crop Cy
+             * @default 0.5
+             */
+            input_auto_crop_cy: number;
+            /**
              * External Heightmap Path
              * @default
              */
@@ -629,7 +639,7 @@ export interface components {
              * @default none
              * @enum {string}
              */
-            background_pattern: "none" | "guilloche" | "stripes" | "dots" | "halftone" | "checkers" | "solid_black" | "solid_white" | "solid_grey";
+            background_pattern: "none" | "guilloche" | "radial_lines" | "stripes" | "dots" | "halftone" | "checkers" | "basket_weave" | "solid_black" | "solid_white" | "solid_grey";
             /**
              * Background Scale
              * @default 1
@@ -672,7 +682,7 @@ export interface components {
             dither_levels: number;
             /**
              * Heightmap Enhance Mode
-             * @default off
+             * @default standard
              * @enum {string}
              */
             heightmap_enhance_mode: "off" | "portrait" | "standard" | "coin";
@@ -737,6 +747,105 @@ export interface components {
              * @default 0.6
              */
             signature_depth_fraction: number;
+            /**
+             * Zone Width Mm
+             * @default 0
+             */
+            zone_width_mm: number;
+            /**
+             * Zone Height Mm
+             * @default 0
+             */
+            zone_height_mm: number;
+            /**
+             * Zone Shape
+             * @default circle
+             * @enum {string}
+             */
+            zone_shape: "circle" | "rectangle" | "oval" | "hexagon" | "triangle" | "donut" | "shield";
+            /**
+             * Zone Border Width Mm
+             * @default 1.5
+             */
+            zone_border_width_mm: number;
+            /**
+             * Zone Rim Width Mm
+             * @default 0.5
+             */
+            zone_rim_width_mm: number;
+            /**
+             * Field Pattern
+             * @default none
+             * @enum {string}
+             */
+            field_pattern: "none" | "guilloche" | "radial_lines" | "stripes" | "dots" | "halftone" | "checkers" | "basket_weave";
+            /**
+             * Field Pattern Scale
+             * @default 1
+             */
+            field_pattern_scale: number;
+            /**
+             * Field Pattern Angle
+             * @default 0
+             */
+            field_pattern_angle: number;
+            /**
+             * Field Pattern Depth
+             * @default 0.7
+             */
+            field_pattern_depth: number;
+            /**
+             * Rim Pattern
+             * @default none
+             * @enum {string}
+             */
+            rim_pattern: "none" | "beaded" | "reeded";
+            /**
+             * Rim Bead Count
+             * @default 72
+             */
+            rim_bead_count: number;
+            /**
+             * Rim Reed Count
+             * @default 120
+             */
+            rim_reed_count: number;
+            /**
+             * Rim Pattern Depth
+             * @default 1
+             */
+            rim_pattern_depth: number;
+            /**
+             * Border Pattern
+             * @default none
+             * @enum {string}
+             */
+            border_pattern: "none" | "rope_twist" | "acanthus_wave" | "greek_key" | "laurel";
+            /**
+             * Border Pattern Depth
+             * @default 0.85
+             */
+            border_pattern_depth: number;
+            /**
+             * Border Strand Count
+             * @default 2
+             */
+            border_strand_count: number;
+            /**
+             * Border Twist Periods
+             * @default 40
+             */
+            border_twist_periods: number;
+            /**
+             * Border Leaf Count
+             * @default 12
+             */
+            border_leaf_count: number;
+            /**
+             * Border Key Count
+             * @default 24
+             */
+            border_key_count: number;
         };
         /**
          * HeightmapUploadResponse
@@ -825,6 +934,11 @@ export interface components {
             plan_id: string;
             /** Passes */
             passes: components["schemas"]["PassEntry"][];
+            /**
+             * Estimated Runtime S
+             * @default 0
+             */
+            estimated_runtime_s: number;
         };
         /** ProfileDetail */
         ProfileDetail: {
@@ -887,6 +1001,8 @@ export interface components {
             settings?: components["schemas"]["HeightmapSettings"];
             /** Profile Name */
             profile_name?: string | null;
+            /** Mask Id */
+            mask_id?: string | null;
         };
         /** RenderResponse */
         RenderResponse: {
@@ -902,6 +1018,11 @@ export interface components {
             conditioned_id?: string | null;
             /** Render Mask Id */
             render_mask_id?: string | null;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
         };
         /**
          * SculptokCreditsResponse

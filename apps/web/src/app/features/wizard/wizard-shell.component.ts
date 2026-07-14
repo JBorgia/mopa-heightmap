@@ -28,30 +28,37 @@ import { SCULPTOK_STAGE_LABELS, SculptokService } from '../../core/state/sculpto
 import { SessionService } from '../../core/state/session.service';
 import { SessionTreeService } from '../../core/state/session-tree.service';
 import { TargetService } from '../../core/state/target.service';
-import { MaskBackend, ToastMessage } from '../../core/state/studio-state';
+import { MaskBackend } from '../../core/state/studio-state';
 
 export const WIZARD_PAGE_LABELS = [
-  '1. Upload',
-  '2. Subject',
-  '3. Prep & Refine',
-  '4. Material & Passes',
-  '5. Review & Export',
+  '1. Blank',
+  '2. Canvas',
+  '3. Image Prep',
+  '4. Checkpoint',
+  '5. Depth Map',
+  '6. Subject Mask',
+  '7. Export',
 ] as const;
 
-/**
- * Per-step optionality flag. The mask step is a separate deliverable
- * (LightBurn handles subject isolation at engrave time per the project
- * memory) so it must NOT block forward progress. Everything else is
- * required to produce an export.
- */
-export const WIZARD_PAGE_OPTIONAL = [false, true, false, false, false] as const;
+export const WIZARD_PAGE_OPTIONAL = [false, false, false, false, false, true, false] as const;
+
+export const ALL_SHAPES = [
+  { key: 'circle',    label: 'Circle' },
+  { key: 'rectangle', label: 'Rectangle' },
+  { key: 'hexagon',   label: 'Hexagon' },
+  { key: 'triangle',  label: 'Triangle' },
+  { key: 'donut',     label: 'Donut' },
+  { key: 'shield',    label: 'Shield' },
+] as const;
 
 export const WIZARD_STAGE_SUMMARIES = [
-  'Upload a photo of the subject you want to engrave.',
-  'Optional — cut the subject out from its background. The cutout ships in your LightBurn project to limit the laser to the subject silhouette only. Skip this if you are engraving the full image.',
-  'Load a heightmap source (sculptok or your own PNG), optionally clean the photo before sculptok sees it, and pick refinement layers to ship in the bundle.',
-  'Choose a material profile. The pass plan computes automatically when both the heightmap and a profile are ready.',
-  'Review your settings and export the finished heightmap or pass file.',
+  'Set the shape, size, and depth polarity of the blank — these drive the crop aspect ratio and engrave direction.',
+  'Upload your photo and position the crop canvas over the subject. Set the background treatment.',
+  'Pre-process the photo before the depth AI sees it — contrast boost, denoise, specular removal.',
+  'Review your composition and cost estimate before spending credits.',
+  'Run Sculptok to generate the depth map, then fine-tune the enhancement.',
+  'Optional — compute a subject mask to isolate the engraving area from the background.',
+  'Choose laser parameters, review the pass plan, and export.',
 ] as const;
 
 export const WIZARD_DEFAULT_SPLITTER_SIZES = [68, 32] as const;
@@ -130,148 +137,690 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
           <div class="wizard-content-grid">
             <section class="wizard-current-page">
 
-              <!-- Page 0: Upload -->
+              @if (output().heightmapId && !renderFresh() && !renderService.inFlight()) {
+                <div class="stale-banner" role="status">
+                  <span>Settings changed since the last render — the preview and heightmap are stale.</span>
+                  <button type="button" (click)="renderPreview()">Re-render now</button>
+                </div>
+              }
+
+              <!-- Page 0: Blank Setup -->
               @if (ui().wizardPage === 0) {
                 <h2>{{ wizardPageLabels[0] }}</h2>
+                <p class="muted">{{ stageSummaries[0] }}</p>
 
                 @if (showOnboarding()) {
                   <div class="onboarding-banner" role="note">
                     <div class="onboarding-text">
                       <strong>How it works:</strong>
-                      Drop a portrait, coin, logo, or pet photo below. We'll convert it into a
-                      greyscale depth map — bright areas engrave shallow, dark areas engrave deep —
-                      and bundle it into a ready-to-fire LightBurn project. No settings knowledge needed.
+                      Pick the blank you're engraving, upload your photo, then generate a depth map and export a ready-to-fire LightBurn project.
                     </div>
                     <button type="button" class="onboarding-dismiss" (click)="dismissOnboarding()" aria-label="Dismiss tip">×</button>
                   </div>
                 }
 
                 <div class="wizard-controls">
-                  <div class="drop-zone"
-                    [class.drop-zone-active]="dragOver()"
-                    [class.drop-zone-loaded]="!!session().imageId"
-                    (dragover)="onDragOver($event)"
-                    (dragleave)="onDragLeave()"
-                    (drop)="onDrop($event)"
-                    role="region"
-                    aria-label="Image upload area"
-                  >
-                    @if (sessionService.uploadInFlight()) {
-                      <div class="drop-zone-state">
-                        <span class="drop-zone-icon" aria-hidden="true">⏳</span>
-                        <span>Uploading…</span>
-                      </div>
-                    } @else if (session().sourceMeta; as meta) {
-                      <div class="drop-zone-state">
-                        <span class="drop-zone-icon" aria-hidden="true">✓</span>
-                        <span>{{ meta.w }} × {{ meta.h }} px · {{ meta.bytes | number }} bytes</span>
-                        <span class="muted">Drop another image to replace</span>
-                      </div>
-                    } @else {
-                      <div class="drop-zone-state">
-                        <span class="drop-zone-icon" aria-hidden="true">↑</span>
-                        <strong>Drop a photo here</strong>
-                        <span class="muted">or use the button below — JPG, PNG, WEBP accepted</span>
-                      </div>
-                    }
-                  </div>
-                  <div class="control-group">
-                    <label for="wizard-upload" class="visually-hidden">Choose image file</label>
-                    <input
-                      id="wizard-upload"
-                      type="file"
-                      accept="image/*"
-                      (change)="onFileSelected($event)"
-                    />
-                  </div>
 
-                  @if (targetService.presets().length > 0) {
-                    <div class="control-group">
-                      <label>What are you engraving? <span class="required-mark">*</span></label>
-                      <div class="target-chips" role="group" aria-label="Target object preset">
-                        @for (preset of targetService.presets(); track preset.name) {
-                          <button
-                            type="button"
-                            class="target-chip"
-                            [class.active]="targetService.active() === preset.name"
-                            (click)="onTargetSelect(preset.name)"
-                          >
-                            <span class="chip-name">{{ preset.display_name }}</span>
-                            <span class="chip-meta">{{ preset.print_width_mm | number:'1.0-0' }}×{{ preset.print_height_mm | number:'1.0-0' }} mm{{ preset.polarity_invert ? ' · inverted' : '' }}</span>
-                          </button>
-                        }
-                      </div>
-                      @if (!targetService.active()) {
-                        <p class="muted small required-hint">Select what you're engraving to continue.</p>
+                  <!-- 1. Shape -->
+                  <div class="control-group">
+                    <label>
+                      Blank shape <span class="required-mark">*</span>
+                    </label>
+                    <div class="target-chips" role="group" aria-label="Blank shape">
+                      @for (s of allShapes; track s.key) {
+                        <button
+                          type="button"
+                          class="target-chip shape-chip"
+                          [class.active]="targetService.activeShape() === s.key"
+                          (click)="targetService.setShape(s.key)"
+                        >{{ s.label }}</button>
                       }
                     </div>
-                  }
+                  </div>
 
-                  @if (targetService.activePreset(); as preset) {
-                    @if (preset.available_shapes && preset.available_shapes.length > 1) {
-                      <div class="control-group">
-                        <label>Shape</label>
-                        <div class="target-chips" role="group" aria-label="Shape selection">
-                          @for (shape of preset.available_shapes; track shape) {
+                  <!-- 2. Size -->
+                  <div class="control-group">
+                    <label>
+                      Size (mm) <span class="required-mark">*</span>
+                      <app-info-tip label="Blank size"
+                        text="Physical engraving area in millimetres. Sets the crop aspect ratio sent to Sculptok — the photo will be cropped to this proportion before depth generation."></app-info-tip>
+                    </label>
+                    <div class="size-inputs">
+                      <input type="number" min="1" max="500" step="0.5"
+                        placeholder="e.g. 25"
+                        [value]="targetService.printWidthMm() || ''"
+                        (change)="onWidthMmChange($event)" />
+                      <span class="size-sep">×</span>
+                      <input type="number" min="1" max="500" step="0.5"
+                        placeholder="e.g. 25"
+                        [value]="targetService.printHeightMm() || ''"
+                        (change)="onHeightMmChange($event)" />
+                      <span class="muted small">mm</span>
+                    </div>
+                    @if (!targetService.printWidthMm() || !targetService.printHeightMm()) {
+                      <p class="muted small required-hint">Enter width × height to continue.</p>
+                    }
+                  </div>
+
+                  <!-- 3. Polarity -->
+                  <div class="control-group">
+                    <label>
+                      Depth direction
+                      <app-info-tip label="Depth direction"
+                        text="Normal: bright areas in the depth map engrave shallow, the subject stands raised above the background. Inverted: flips this so the subject engraves deep — used for signet rings, intaglio seals, and recessed designs."></app-info-tip>
+                    </label>
+                    <div class="polarity-toggle" role="radiogroup" aria-label="Depth direction">
+                      <label class="polarity-option" [class.active]="!pipeline().settings.polarity_invert">
+                        <input type="radio" name="wiz-polarity" value="normal"
+                          [checked]="!pipeline().settings.polarity_invert"
+                          (change)="onPolarityChange(false)" />
+                        Normal — subject raised
+                      </label>
+                      <label class="polarity-option" [class.active]="pipeline().settings.polarity_invert">
+                        <input type="radio" name="wiz-polarity" value="inverted"
+                          [checked]="pipeline().settings.polarity_invert"
+                          (change)="onPolarityChange(true)" />
+                        Inverted — subject deep
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- 4. Zone overlays -->
+                  <details class="collapsible-section">
+                    <summary class="collapsible-summary">
+                      Zone overlays <span class="step-tag">field · rim · border patterns</span>
+                    </summary>
+                    <div class="collapsible-body">
+
+                      <!-- Zone geometry mirrors the blank size entered above -->
+                      @if ((pipeline().settings.zone_width_mm ?? 0) > 0 && (pipeline().settings.zone_height_mm ?? 0) > 0) {
+                        <p class="muted small">
+                          Overlay zones follow the blank:
+                          {{ pipeline().settings.zone_width_mm | number:'1.0-1' }} ×
+                          {{ pipeline().settings.zone_height_mm | number:'1.0-1' }} mm
+                          {{ pipeline().settings.zone_shape }}.
+                        </p>
+                      }
+
+                      @if ((pipeline().settings.zone_width_mm ?? 0) > 0 && (pipeline().settings.zone_height_mm ?? 0) > 0) {
+
+                        <!-- Field pattern -->
+                        <div class="control-group">
+                          <label>Field pattern
+                            <app-info-tip label="Field pattern"
+                              text="Procedural pattern composited into the coin's central field zone after depth generation. Depth controls how deep the pattern valleys engrave."></app-info-tip>
+                          </label>
+                          <select id="wiz-field-pattern"
+                            [value]="pipeline().settings.field_pattern"
+                            (change)="renderService.patchSettings('field_pattern', $any($event.target).value)">                            <option value="none">None</option>
+                            <option value="guilloche">Guilloché (engine-turned swirls)</option>
+                            <option value="radial_lines">Radial lines (sunburst)</option>
+                            <option value="stripes">Stripes</option>
+                            <option value="dots">Dots</option>
+                            <option value="halftone">Halftone</option>
+                            <option value="checkers">Checkers</option>
+                            <option value="basket_weave">Basket weave</option>
+                          </select>
+                        </div>
+
+                        @if (pipeline().settings.field_pattern !== 'none') {
+                          <div class="control-group indent">
+                            <label>Pattern scale
+                              <input type="range" min="0.1" max="5" step="0.1"
+                                [value]="pipeline().settings.field_pattern_scale ?? 1"
+                                (input)="renderService.patchSettings('field_pattern_scale', +$any($event.target).value)" />
+                              <span class="range-readout">{{ (pipeline().settings.field_pattern_scale ?? 1) | number:'1.1-1' }}</span>
+                            </label>
+                            <label>Angle (°)
+                              <input type="range" min="-180" max="180" step="1"
+                                [value]="pipeline().settings.field_pattern_angle ?? 0"
+                                (input)="renderService.patchSettings('field_pattern_angle', +$any($event.target).value)" />
+                              <span class="range-readout">{{ (pipeline().settings.field_pattern_angle ?? 0) | number:'1.0-0' }}°</span>
+                            </label>
+                            <label>Depth
+                              <input type="range" min="0" max="1" step="0.05"
+                                [value]="pipeline().settings.field_pattern_depth ?? 0.7"
+                                (input)="renderService.patchSettings('field_pattern_depth', +$any($event.target).value)" />
+                              <span class="range-readout">{{ ((pipeline().settings.field_pattern_depth ?? 0.7) * 100) | number:'1.0-0' }}%</span>
+                            </label>
+                          </div>
+                        }
+
+                        <!-- Rim pattern -->
+                        <div class="control-group">
+                          <label>Rim pattern
+                            <app-info-tip label="Rim pattern"
+                              text="Decorative treatment for the outermost rim band. 'Beaded' places hemispherical bosses equally spaced around the circumference; 'Reeded' cuts radial milled-edge grooves like a coin edge laid flat."></app-info-tip>
+                          </label>
+                          <select id="wiz-rim-pattern"
+                            [value]="pipeline().settings.rim_pattern"
+                            (change)="renderService.patchSettings('rim_pattern', $any($event.target).value)">
+                            <option value="none">None</option>
+                            <option value="beaded">Beaded</option>
+                            <option value="reeded">Reeded (milled edge)</option>
+                          </select>
+                        </div>
+
+                        @if (pipeline().settings.rim_pattern === 'beaded') {
+                          <div class="control-group indent">
+                            <label>Bead count
+                              <input type="range" min="16" max="360" step="4"
+                                [value]="pipeline().settings.rim_bead_count ?? 72"
+                                (input)="renderService.patchSettings('rim_bead_count', +$any($event.target).value)" />
+                              <span class="range-readout">{{ pipeline().settings.rim_bead_count ?? 72 }}</span>
+                            </label>
+                            <label>Bead height
+                              <input type="range" min="0" max="1" step="0.05"
+                                [value]="pipeline().settings.rim_pattern_depth ?? 1"
+                                (input)="renderService.patchSettings('rim_pattern_depth', +$any($event.target).value)" />
+                              <span class="range-readout">{{ ((pipeline().settings.rim_pattern_depth ?? 1) * 100) | number:'1.0-0' }}%</span>
+                            </label>
+                          </div>
+                        }
+                        @if (pipeline().settings.rim_pattern === 'reeded') {
+                          <div class="control-group indent">
+                            <label>Reed count
+                              <input type="range" min="16" max="720" step="8"
+                                [value]="pipeline().settings.rim_reed_count ?? 120"
+                                (input)="renderService.patchSettings('rim_reed_count', +$any($event.target).value)" />
+                              <span class="range-readout">{{ pipeline().settings.rim_reed_count ?? 120 }}</span>
+                            </label>
+                            <label>Reed height
+                              <input type="range" min="0" max="1" step="0.05"
+                                [value]="pipeline().settings.rim_pattern_depth ?? 1"
+                                (input)="renderService.patchSettings('rim_pattern_depth', +$any($event.target).value)" />
+                              <span class="range-readout">{{ ((pipeline().settings.rim_pattern_depth ?? 1) * 100) | number:'1.0-0' }}%</span>
+                            </label>
+                          </div>
+                        }
+
+                        <!-- Border pattern -->
+                        <div class="control-group">
+                          <label>Border pattern
+                            <app-info-tip label="Border pattern"
+                              text="Ornamental pattern in the annular border between the rim and field. 'Rope twist' weaves helical strands; 'Acanthus wave' renders a botanical leaf scroll; 'Greek key' repeats the classical meander fret; 'Laurel' wraps a leafed wreath around the band."></app-info-tip>
+                          </label>
+                          <select id="wiz-border-pattern"
+                            [value]="pipeline().settings.border_pattern"
+                            (change)="renderService.patchSettings('border_pattern', $any($event.target).value)">
+                            <option value="none">None</option>
+                            <option value="rope_twist">Rope twist</option>
+                            <option value="acanthus_wave">Acanthus wave</option>
+                            <option value="greek_key">Greek key (meander)</option>
+                            <option value="laurel">Laurel wreath</option>
+                          </select>
+                        </div>
+
+                        @if (pipeline().settings.border_pattern !== 'none') {
+                          <div class="control-group indent">
+                            <label>Depth
+                              <input type="range" min="0" max="1" step="0.05"
+                                [value]="pipeline().settings.border_pattern_depth ?? 0.85"
+                                (input)="renderService.patchSettings('border_pattern_depth', +$any($event.target).value)" />
+                              <span class="range-readout">{{ ((pipeline().settings.border_pattern_depth ?? 0.85) * 100) | number:'1.0-0' }}%</span>
+                            </label>
+                            @if (pipeline().settings.border_pattern === 'rope_twist') {
+                              <label>Strands
+                                <input type="range" min="1" max="8" step="1"
+                                  [value]="pipeline().settings.border_strand_count ?? 2"
+                                  (input)="renderService.patchSettings('border_strand_count', +$any($event.target).value)" />
+                                <span class="range-readout">{{ pipeline().settings.border_strand_count ?? 2 }}</span>
+                              </label>
+                              <label>Twist cycles
+                                <input type="range" min="8" max="120" step="4"
+                                  [value]="pipeline().settings.border_twist_periods ?? 40"
+                                  (input)="renderService.patchSettings('border_twist_periods', +$any($event.target).value)" />
+                                <span class="range-readout">{{ pipeline().settings.border_twist_periods ?? 40 }}</span>
+                              </label>
+                            }
+                            @if (pipeline().settings.border_pattern === 'acanthus_wave' || pipeline().settings.border_pattern === 'laurel') {
+                              <label>Leaf count
+                                <input type="range" min="4" max="64" step="2"
+                                  [value]="pipeline().settings.border_leaf_count ?? 12"
+                                  (input)="renderService.patchSettings('border_leaf_count', +$any($event.target).value)" />
+                                <span class="range-readout">{{ pipeline().settings.border_leaf_count ?? 12 }}</span>
+                              </label>
+                            }
+                            @if (pipeline().settings.border_pattern === 'greek_key') {
+                              <label>Key repeats
+                                <input type="range" min="4" max="120" step="2"
+                                  [value]="pipeline().settings.border_key_count ?? 24"
+                                  (input)="renderService.patchSettings('border_key_count', +$any($event.target).value)" />
+                                <span class="range-readout">{{ pipeline().settings.border_key_count ?? 24 }}</span>
+                              </label>
+                            }
+                          </div>
+                        }
+
+                      } @else {
+                        <p class="muted small">Enter the blank size above (step 2) to enable overlay controls.</p>
+                      }
+
+                    </div>
+                  </details>
+
+                  <!-- 5. Quick presets -->
+                  @if (targetService.presets().length > 0) {
+                    <details class="collapsible-section" open>
+                      <summary class="collapsible-summary">
+                        Quick presets <span class="step-tag">auto-fill shape, size & direction</span>
+                      </summary>
+                      <div class="collapsible-body">
+                        <p class="muted small">Tap a preset to auto-fill the shape, size, and polarity above. You can adjust any field afterwards.</p>
+                        <div class="target-chips" role="group" aria-label="Target preset">
+                          @for (preset of targetService.presets(); track preset.name) {
                             <button
                               type="button"
-                              class="target-chip shape-chip"
-                              [class.active]="targetService.activeShape() === shape"
-                              (click)="targetService.setShape(shape)"
+                              class="target-chip"
+                              [class.active]="targetService.active() === preset.name"
+                              (click)="onTargetSelect(preset.name)"
                             >
-                              {{ shapeLabel(shape) }}
+                              <span class="chip-name">{{ preset.display_name }}</span>
+                              <span class="chip-size">{{ preset.print_width_mm | number:'1.0-0' }}×{{ preset.print_height_mm | number:'1.0-0' }} mm</span>
+                              @if (preset.polarity_invert) {
+                                <span class="chip-meta">inverted</span>
+                              }
                             </button>
                           }
                         </div>
+                        @if (targetService.activePreset(); as preset) {
+                          @if (preset.notes) {
+                            <p class="muted small preset-notes">{{ preset.notes }}</p>
+                          }
+                        }
                       </div>
-                    }
+                    </details>
                   }
 
-                  @if (session().imageId && targetService.active()) {
-                    <div class="shape-canvas-section">
-                      <div class="shape-canvas-header">
+                  @if (!targetService.activeShape()) {
+                    <p class="muted small required-hint">Select a shape to continue.</p>
+                  }
+                </div>
+              }
+
+              <!-- Page 1: Canvas -->
+              @if (ui().wizardPage === 1) {
+                <h2>{{ wizardPageLabels[1] }}</h2>
+                <p class="muted">{{ stageSummaries[1] }}</p>
+                <div class="wizard-controls">
+
+                  <!-- Shape canvas — always shown first; shows placeholder when no photo yet -->
+                  <div class="shape-canvas-section">
+                    <div class="shape-canvas-header">
+                      @if (!targetService.activeShape()) {
+                        <strong>Select a blank shape on step 1 first</strong>
+                        <span class="muted small">The shape and size set the crop aspect ratio sent to Sculptok</span>
+                      } @else if (!session().imageId) {
+                        <strong>Drop your photo below to start positioning</strong>
+                        <span class="muted small">The dashed outline shows the {{ shapeLabel(targetService.activeShape() ?? 'rectangle') | lowercase }} crop area — drag the photo to reposition once loaded</span>
+                      } @else {
                         <strong>Position the {{ shapeLabel(targetService.activeShape() ?? 'rectangle') }} over your subject</strong>
                         <span class="muted small">Drag to move · corner handles to resize · defines what Sculptok sees</span>
-                      </div>
-                      <canvas
-                        #shapeCanvas
-                        class="shape-canvas"
-                        (pointerdown)="onShapePointerDown($event)"
-                        (pointermove)="onShapePointerMove($event)"
-                        (pointerup)="onShapePointerUp($event)"
-                        (pointercancel)="onShapePointerUp($event)"
-                      ></canvas>
+                      }
                     </div>
+                    <canvas
+                      #shapeCanvas
+                      class="shape-canvas"
+                      [class.shape-canvas--placeholder]="!session().imageId"
+                      (pointerdown)="onShapePointerDown($event)"
+                      (pointermove)="onShapePointerMove($event)"
+                      (pointerup)="onShapePointerUp($event)"
+                      (pointercancel)="onShapePointerUp($event)"
+                    ></canvas>
+                    @if (!session().imageId) {
+                      <div class="canvas-drop-overlay"
+                        [class.canvas-drop-overlay--active]="dragOver()"
+                        (dragover)="onDragOver($event)"
+                        (dragleave)="onDragLeave()"
+                        (drop)="onDrop($event)"
+                      >
+                        @if (sessionService.uploadInFlight()) {
+                          <span>Uploading…</span>
+                        } @else {
+                          <span class="canvas-drop-icon">↑</span>
+                          <strong>Drop photo here</strong>
+                          <span class="muted">JPG, PNG, WEBP</span>
+                        }
+                      </div>
+                    }
+                    @if (session().sourceMeta; as meta) {
+                      <div class="canvas-meta-bar">
+                        {{ meta.w }} × {{ meta.h }} px
+                        @if (targetService.printWidthMm() > 0 && targetService.printHeightMm() > 0) {
+                          · {{ targetService.printWidthMm() | number:'1.0-1' }} × {{ targetService.printHeightMm() | number:'1.0-1' }} mm blank
+                        }
+                        <label class="canvas-replace-link">
+                          Replace photo
+                          <input type="file" accept="image/*" class="visually-hidden" (change)="onFileSelected($event)" />
+                        </label>
+                      </div>
+                    }
+                  </div>
+
+                  @if (!session().imageId) {
+                    <label class="browse-file-btn">
+                      Browse files…
+                      <input type="file" accept="image/*" class="visually-hidden" (change)="onFileSelected($event)" />
+                    </label>
                   }
 
-                  @if (session().imageId && sculptokService.credits()?.configured) {
-                    <div class="hero-cta-row">
-                      <button
-                        type="button"
-                        class="hero-cta-btn"
-                        [disabled]="sculptokService.inFlight() || renderService.inFlight() || chainStage() !== 'idle' || creditsExhausted() || !!output().heightmapId"
-                        (click)="generateAndRenderChain()"
-                      >
-                        @if (chainStage() === 'generating') {
-                          Generating depth map…
-                        } @else if (chainStage() === 'rendering') {
-                          Rendering preview…
-                        } @else {
-                          Generate &amp; package →
-                        }
-                      </button>
-                      <span class="hero-cta-hint">Full pipeline — depth map → render → export ready</span>
+                  <div class="control-group">
+                    <label for="wiz-bg-pattern">
+                      Background treatment
+                      <app-info-tip label="Background treatment"
+                        text="Uses the subject mask (computed automatically) to scrub the photo's background to a flat colour or pattern before sculptok generates the heightmap. With a busy background removed, sculptok focuses on the subject and produces cleaner depth. The same mask is shipped as the LightBurn deliverable when 'Subject mask deliverable' is on, so you don't pay for it twice."></app-info-tip>
+                    </label>
+                    <select id="wiz-bg-pattern"
+                      [value]="pipeline().settings.background_pattern"
+                      (change)="onBackgroundPatternChange($event)">
+                      <option value="none">— keep original background —</option>
+                      <option value="solid_black">Flat black (most common for coins)</option>
+                      <option value="solid_white">Solid white</option>
+                      <option value="solid_grey">Solid mid-grey</option>
+                      <option value="guilloche">Guilloché (decorative)</option>
+                      <option value="radial_lines">Radial lines / sunburst (decorative)</option>
+                      <option value="stripes">Stripes (decorative)</option>
+                      <option value="dots">Dots (decorative)</option>
+                      <option value="halftone">Halftone (decorative)</option>
+                      <option value="checkers">Checkers (decorative)</option>
+                      <option value="basket_weave">Basket weave (decorative)</option>
+                    </select>
+                    @if (pipeline().settings.background_pattern !== 'none' && !pipeline().settings.subject_mask_enabled) {
+                      <p class="muted small disabled-hint">
+                        Background replace needs a subject mask — enabling it
+                        automatically when you select a pattern or click <strong>Generate via Sculptok</strong>.
+                      </p>
+                    }
+                  </div>
+                </div>
+              }
+
+              <!-- Page 2: Image Prep -->
+              @if (ui().wizardPage === 2) {
+                <h2>{{ wizardPageLabels[2] }}</h2>
+                <p class="muted">{{ stageSummaries[2] }}</p>
+                <div class="wizard-controls">
+                  <p class="muted small">All controls below are off by default. Enable only what your photo needs.</p>
+
+                  <label class="control-toggle">
+                    <input type="checkbox"
+                      [checked]="pipeline().settings.input_remove_specular"
+                      (change)="onSettingToggle('input_remove_specular', $event)" />
+                    <span>
+                      Remove specular highlights
+                      <app-info-tip label="Remove specular highlights"
+                        text="Caps the brightest pixels (typically reflections off skin or jewellery) so sculptok doesn't read them as raised features. Helps with shiny foreheads, wet lips, polished metal."></app-info-tip>
+                    </span>
+                  </label>
+                  <label class="control-toggle">
+                    <input type="checkbox"
+                      [checked]="pipeline().settings.input_clahe"
+                      (change)="onSettingToggle('input_clahe', $event)" />
+                    <span>
+                      CLAHE contrast
+                      <app-info-tip label="CLAHE contrast"
+                        text="Contrast Limited Adaptive Histogram Equalisation. Boosts local contrast in dim or muddy photos so sculptok sees more facial detail. Don't enable on already-bright studio shots — it'll posterise."></app-info-tip>
+                    </span>
+                  </label>
+                  <label class="control-toggle">
+                    <input type="checkbox"
+                      [checked]="pipeline().settings.input_denoise"
+                      (change)="onSettingToggle('input_denoise', $event)" />
+                    <span>
+                      Denoise
+                      <app-info-tip label="Denoise"
+                        text="Bilateral denoise. Smooths out sensor grain and JPEG noise without losing edges. Useful for high-ISO phone shots; skip for clean stock photography."></app-info-tip>
+                    </span>
+                  </label>
+                  <label class="control-toggle">
+                    <input type="checkbox"
+                      [checked]="pipeline().settings.input_white_balance"
+                      (change)="onSettingToggle('input_white_balance', $event)" />
+                    <span>
+                      White balance
+                      <app-info-tip label="White balance"
+                        text="Corrects colour cast from indoor or mixed lighting. Depth nets read colour as tonal information."></app-info-tip>
+                    </span>
+                  </label>
+
+                  <details class="collapsible-section">
+                    <summary class="collapsible-summary">
+                      Optional passes <span class="step-tag">optional</span>
+                    </summary>
+                    <div class="collapsible-body">
+                      <p class="muted small">
+                        Extra layers to ship in the .lbrn2 bundle. Each adds a separate
+                        physical pass — they don't subdivide the depth budget.
+                      </p>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.subject_mask_enabled"
+                          (change)="onSettingToggle('subject_mask_enabled', $event)" />
+                        <span>
+                          Subject mask deliverable
+                          <app-info-tip label="Subject mask deliverable"
+                            text="Computes a silhouette mask during render and ships it alongside the heightmap. LightBurn uses it to limit the engraving to the subject area only. Required if you've selected a procedural background pattern."></app-info-tip>
+                        </span>
+                      </label>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.pre_clean_enabled"
+                          (change)="onSettingToggle('pre_clean_enabled', $event)" />
+                        <span>
+                          Pre-clean pass
+                          <app-info-tip label="Pre-clean pass"
+                            text="Defocused full-frame raster pass run BEFORE the depth carve. Burns off oxide, oils, and surface contamination so the relief lands on bare metal. Adds engrave time but improves tonal consistency."></app-info-tip>
+                        </span>
+                      </label>
+                      <label class="control-toggle">
+                        <input type="checkbox"
+                          [checked]="pipeline().settings.photo_tonal_enabled"
+                          (change)="onSettingToggle('photo_tonal_enabled', $event)" />
+                        <span>
+                          Photo-tonal overlay
+                          <app-info-tip label="Photo-tonal overlay"
+                            text="Low-power dithered pass that fires the photo's luminance back over the carved relief. Adds skin tone, hair shading, and clothing patterns that pure depth misses. Tonal-only — does NOT carve depth."></app-info-tip>
+                        </span>
+                      </label>
+                      <div class="control-group">
+                        <label for="wiz-sig-text">
+                          Signature text
+                          <app-info-tip label="Signature text"
+                            text="Optional vector text engraved in a corner of the piece. Leave blank to omit. Useful for an artist mark, date, or serial number."></app-info-tip>
+                        </label>
+                        <input id="wiz-sig-text" type="text" maxlength="64"
+                          placeholder="e.g. JB 2026"
+                          [value]="pipeline().settings.signature_text"
+                          (change)="onSettingValue('signature_text', $event)" />
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              }
+
+              <!-- Page 3: Checkpoint -->
+              @if (ui().wizardPage === 3) {
+                <h2>{{ wizardPageLabels[3] }}</h2>
+                <p class="muted">{{ stageSummaries[3] }}</p>
+                <div class="wizard-controls">
+                  <div class="preflight-checklist">
+                    <div class="preflight-header">Ready to generate?</div>
+                    <ol class="preflight-steps">
+                      <li class="preflight-step" [class.preflight-step--done]="pageStatus(0) === 'complete'">
+                        <strong>Blank configured</strong>
+                        <p>
+                          @if (pageStatus(0) === 'complete') {
+                            {{ shapeLabel(targetService.activeShape()!) }}
+                            · {{ targetService.printWidthMm() | number:'1.0-1' }}×{{ targetService.printHeightMm() | number:'1.0-1' }} mm
+                            · {{ pipeline().settings.polarity_invert ? 'inverted' : 'normal' }}
+                            @if (targetService.activePreset(); as preset) { — {{ preset.display_name }} preset }
+                            ✓
+                          } @else {
+                            <button type="button" class="link-button" (click)="selectPage(0)">Configure blank on step 1 →</button>
+                          }
+                        </p>
+                      </li>
+                      <li class="preflight-step" [class.preflight-step--done]="!!session().imageId">
+                        <strong>Photo uploaded</strong>
+                        <p>
+                          @if (session().sourceMeta; as meta) {
+                            {{ meta.w }} × {{ meta.h }} px ✓
+                          } @else {
+                            <button type="button" class="link-button" (click)="selectPage(1)">Upload a photo on step 2 →</button>
+                          }
+                        </p>
+                      </li>
+                      <li class="preflight-step" [class.preflight-step--done]="!!session().imageId">
+                        <strong>Blank positioned on canvas</strong>
+                        <p>
+                          @if (session().imageId) {
+                            Shape overlaid — crop center {{ (cropOverlay().cx * 100 | number:'1.0-0') }}%, {{ (cropOverlay().cy * 100 | number:'1.0-0') }}% ✓
+                          } @else {
+                            Upload a photo and position the canvas overlay.
+                          }
+                        </p>
+                      </li>
+                      <li class="preflight-step preflight-step--info">
+                        <strong>Credit cost</strong>
+                        <p>
+                          @if (sculptokService.credits(); as c) {
+                            @if (c.configured) {
+                              1 credit will be used · {{ c.balance }} remaining
+                            } @else {
+                              Sculptok API not configured — upload your own PNG on step 5 instead.
+                            }
+                          } @else {
+                            Checking credit balance…
+                          }
+                        </p>
+                      </li>
+                    </ol>
+                  </div>
+                  @if (targetService.active() && session().imageId) {
+                    <div class="stage-badge stage-badge--success">
+                      Ready — click Next to generate the depth map
                     </div>
                   }
                 </div>
               }
 
-              <!-- Page 1: Subject / Mask (optional — separate LightBurn deliverable) -->
-              @if (ui().wizardPage === 1) {
-                <h2>{{ wizardPageLabels[1] }} <span class="step-tag">optional</span></h2>
-                <p>{{ stageSummaries[1] }}</p>
+              <!-- Page 4: Depth Map -->
+              @if (ui().wizardPage === 4) {
+                <h2>{{ wizardPageLabels[4] }}</h2>
+                <p class="muted">{{ stageSummaries[4] }}</p>
+                <div class="wizard-controls">
+                  <fieldset class="control-section primary">
+                    <legend>
+                      Heightmap source <span class="step-tag required">required</span>
+                      <app-info-tip label="Heightmap source"
+                        text="A greyscale PNG where pixel brightness encodes depth — bright = raised, dark = engraved deep. This is what LightBurn's 3D Sliced mode reads to carve the relief. Sculptok generates one from your photo via their API; otherwise upload your own (Meshy, hand-painted, etc.)."></app-info-tip>
+                    </legend>
+                    <p class="muted small">
+                      The depth pass uses this PNG verbatim. Generate via the Sculptok API
+                      or upload one you've already produced.
+                    </p>
+                    @if (pipeline().settings.external_heightmap_path) {
+                      <p class="muted">
+                        Loaded: <code>{{ pipeline().settings.external_heightmap_path }}</code>
+                      </p>
+                    }
+                    <div class="control-group">
+                      <button type="button"
+                        [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight() || creditsExhausted()"
+                        (click)="sculptokGenerate()">
+                        @if (sculptokService.inFlight()) {
+                          Generating…
+                        } @else if (output().heightmapId) {
+                          Re-generate depth map
+                        } @else {
+                          Generate via Sculptok
+                        }
+                      </button>
+                      @if (creditsExhausted()) {
+                        <p class="muted small disabled-hint">
+                          You have no credits remaining.
+                          <button type="button" class="link-button" (click)="authService.authModalOpen.set(true)">Upgrade your plan →</button>
+                        </p>
+                      }
+                      @if (output().heightmapId && !creditsExhausted() && sculptokService.credits()?.configured && !sculptokService.inFlight()) {
+                        <p class="muted small disabled-hint">Re-generating will spend 1 credit.</p>
+                      }
+
+                      @if (sculptokService.inFlight() || sculptokService.stage() === 'done' || sculptokService.stage() === 'error') {
+                        <div class="sculptok-progress" role="status" aria-live="polite">
+                          @for (step of sculptokProgressSteps; track step.stage) {
+                            <div class="progress-step"
+                              [class.step-done]="isStepDone(step.stage)"
+                              [class.step-active]="sculptokService.stage() === step.stage"
+                              [class.step-error]="sculptokService.stage() === 'error' && step.stage === sculptokService.stage()">
+                              <span class="step-dot" aria-hidden="true"></span>
+                              <span class="step-label">{{ step.label }}</span>
+                            </div>
+                          }
+                        </div>
+                      }
+
+                      @if (sculptokService.credits(); as c) {
+                        @if (c.configured) {
+                          <p class="muted">{{ c.balance }} credits remaining</p>
+                        } @else {
+                          <p class="muted">
+                            Sculptok API key not configured on the server. Upload a PNG below
+                            instead, or configure <code>SCULPTOK_API_KEY</code>.
+                          </p>
+                        }
+                      }
+                    </div>
+                    <div class="control-group">
+                      <label for="wiz-heightmap-upload">Or upload a heightmap PNG or TIFF</label>
+                      <input id="wiz-heightmap-upload" type="file"
+                        accept="image/png,image/tiff"
+                        (change)="onHeightmapFileSelected($event)" />
+                    </div>
+                  </fieldset>
+
+                  @if (output().heightmapId) {
+                    <div class="control-group">
+                      <label for="wiz-enhance-5">
+                        Depth enhancement
+                        <app-info-tip label="Depth enhancement"
+                          text="Post-processes the AI depth map to get closer to the high-contrast zone structure of professional coin heightmaps. 'Coin' applies gamma, local contrast (CLAHE), and edge sharpening. Start with 'Standard' and try 'Coin' for medallion/coin designs."></app-info-tip>
+                      </label>
+                      <select id="wiz-enhance-5"
+                        [value]="pipeline().settings.heightmap_enhance_mode"
+                        (change)="onSettingValue('heightmap_enhance_mode', $event)">
+                        <option value="off">Off — Sculptok output as-is</option>
+                        <option value="portrait">Portrait — gentle contrast + mild gamma</option>
+                        <option value="standard">Standard — moderate contrast + unsharp mask</option>
+                        <option value="coin">Coin — aggressive contrast + CLAHE + sharpen</option>
+                      </select>
+                    </div>
+                    <div class="control-actions">
+                      <button type="button"
+                        [disabled]="!canRender() || renderService.inFlight() || renderFresh()"
+                        (click)="renderPreview()">
+                        @if (renderService.inFlight()) {
+                          Rendering…
+                        } @else if (renderFresh()) {
+                          Heightmap ready
+                        } @else {
+                          Apply &amp; preview
+                        }
+                      </button>
+                    </div>
+                    @if (output().elapsedSeconds !== null && !renderService.inFlight()) {
+                      <p class="muted">Rendered in {{ output().elapsedSeconds | number: '1.2-2' }} s</p>
+                    }
+                  }
+                </div>
+              }
+
+              <!-- Page 5: Subject & Zones (optional) -->
+              @if (ui().wizardPage === 5) {
+                <h2>{{ wizardPageLabels[5] }} <span class="step-tag">optional</span></h2>
+                <p class="muted">{{ stageSummaries[5] }}</p>
                 @if (!session().imageId) {
-                  <p class="muted">Upload an image first (step 1) to enable the cutout.</p>
+                  <p class="muted">Upload an image first (step 2) to enable the cutout.</p>
                 }
                 <div class="wizard-controls">
                   <div class="control-group">
@@ -326,292 +875,45 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         adds an include (positive) or exclude (negative) seed at a fixed
                         normalised position on the source image:
                       </p>
-                      @if (pipeline().mask.backend !== 'threshold') {
-                        <p class="muted small disabled-hint">
-                          Click-refine uses flood-fill and requires the <strong>Simple</strong> cutout method.
-                          Switch the cutout method above to enable these shortcuts.
-                        </p>
-                      }
-                      <div class="control-actions">
-                        <button
-                          type="button"
-                          class="secondary"
-                          [disabled]="maskService.inFlight() || pipeline().mask.backend !== 'threshold'"
-                          (click)="clickRefineAt(0.5, 0.5, 'positive')"
-                        >
-                          Include centre
-                        </button>
-                        <button
-                          type="button"
-                          class="secondary"
-                          [disabled]="maskService.inFlight() || pipeline().mask.backend !== 'threshold'"
-                          (click)="clickRefineAt(0.05, 0.05, 'negative')"
-                        >
-                          Exclude top-left
-                        </button>
-                        <button
-                          type="button"
-                          class="secondary"
-                          [disabled]="maskService.inFlight() || pipeline().mask.backend !== 'threshold'"
-                          (click)="clickRefineAt(0.95, 0.95, 'negative')"
-                        >
-                          Exclude bottom-right
-                        </button>
-                      </div>
-                    </div>
-                  }
-                </div>
-              }
-
-              <!-- Page 2: Prep & Refine -->
-              @if (ui().wizardPage === 2) {
-                <h2>{{ wizardPageLabels[2] }}</h2>
-                <p>{{ stageSummaries[2] }}</p>
-                @if (!session().imageId) {
-                  <p class="muted">Upload an image first (step 1) before configuring the heightmap.</p>
-                }
-                <div class="wizard-controls">
-
-                  <fieldset class="control-section primary">
-                    <legend>
-                      Heightmap source <span class="step-tag required">required</span>
-                      <app-info-tip label="Heightmap source"
-                        text="A greyscale PNG where pixel brightness encodes depth — bright = raised, dark = engraved deep. This is what LightBurn's 3D Sliced mode reads to carve the relief. Sculptok generates one from your photo via their API; otherwise upload your own (Meshy, hand-painted, etc.)."></app-info-tip>
-                    </legend>
-                    <p class="muted small">
-                      The depth pass uses this PNG verbatim. Generate via the Sculptok API
-                      or upload one you've already produced.
-                    </p>
-                    @if (pipeline().settings.external_heightmap_path) {
-                      <p class="muted">
-                        Loaded: <code>{{ pipeline().settings.external_heightmap_path }}</code>
-                      </p>
-                    }
-                    <div class="control-group">
-                      <button type="button"
-                        [disabled]="!session().imageId || !sculptokService.credits()?.configured || sculptokService.inFlight() || creditsExhausted() || !!output().heightmapId"
-                        (click)="sculptokGenerate()">
-                        @if (sculptokService.inFlight()) { Generating… } @else if (output().heightmapId) { Depth map ready } @else { Generate via Sculptok }
-                      </button>
-                      @if (creditsExhausted()) {
-                        <p class="muted small disabled-hint">
-                          You have no credits remaining.
-                          <button type="button" class="link-button" (click)="authService.authModalOpen.set(true)">Upgrade your plan →</button>
-                        </p>
-                      }
-
-                      @if (sculptokService.inFlight() || sculptokService.stage() === 'done' || sculptokService.stage() === 'error') {
-                        <div class="sculptok-progress" role="status" aria-live="polite">
-                          @for (step of sculptokProgressSteps; track step.stage) {
-                            <div class="progress-step"
-                              [class.step-done]="isStepDone(step.stage)"
-                              [class.step-active]="sculptokService.stage() === step.stage"
-                              [class.step-error]="sculptokService.stage() === 'error' && step.stage === sculptokService.stage()">
-                              <span class="step-dot" aria-hidden="true"></span>
-                              <span class="step-label">{{ step.label }}</span>
-                            </div>
-                          }
+                      @if (pipeline().mask.backend === 'threshold') {
+                        <div class="control-actions">
+                          <button
+                            type="button"
+                            class="secondary"
+                            [disabled]="maskService.inFlight()"
+                            (click)="clickRefineAt(0.5, 0.5, 'positive')"
+                          >
+                            Include centre
+                          </button>
+                          <button
+                            type="button"
+                            class="secondary"
+                            [disabled]="maskService.inFlight()"
+                            (click)="clickRefineAt(0.05, 0.05, 'negative')"
+                          >
+                            Exclude top-left
+                          </button>
+                          <button
+                            type="button"
+                            class="secondary"
+                            [disabled]="maskService.inFlight()"
+                            (click)="clickRefineAt(0.95, 0.95, 'negative')"
+                          >
+                            Exclude bottom-right
+                          </button>
                         </div>
-                      }
-
-                      @if (sculptokService.credits(); as c) {
-                        @if (c.configured) {
-                          <p class="muted">{{ c.balance }} credits remaining</p>
-                        } @else {
-                          <p class="muted">
-                            Sculptok API key not configured on the server. Upload a PNG below
-                            instead, or configure <code>SCULPTOK_API_KEY</code>.
-                          </p>
-                        }
-                      }
-                    </div>
-                    <div class="control-group">
-                      <label for="wiz-heightmap-upload">Or upload a heightmap PNG</label>
-                      <input id="wiz-heightmap-upload" type="file"
-                        accept="image/png,image/tiff"
-                        (change)="onHeightmapFileSelected($event)" />
-                    </div>
-                  </fieldset>
-
-                  <details class="collapsible-section">
-                    <summary class="collapsible-summary">
-                      Pre-sculptok prep <span class="step-tag">optional</span>
-                    </summary>
-                    <div class="collapsible-body">
-                      <div class="control-group">
-                        <label for="wiz-enhance">
-                          Heightmap enhancement
-                          <app-info-tip label="Heightmap enhancement"
-                            text="Post-processes the AI depth map to get closer to the high-contrast zone structure of professional coin heightmaps. 'Coin' applies gamma, local contrast (CLAHE), and edge sharpening. Start with 'Standard' and try 'Coin' for medallion/coin designs."></app-info-tip>
-                        </label>
-                        <select id="wiz-enhance"
-                          [value]="pipeline().settings.heightmap_enhance_mode"
-                          (change)="onSettingValue('heightmap_enhance_mode', $event)">
-                          <option value="off">Off — Sculptok output as-is</option>
-                          <option value="portrait">Portrait — gentle contrast + mild gamma</option>
-                          <option value="standard">Standard — moderate contrast + unsharp mask</option>
-                          <option value="coin">Coin — aggressive contrast + CLAHE + sharpen</option>
-                        </select>
-                      </div>
-
-                      <p class="muted small">
-                        Cleans the photo before sculptok sees it. Defaults are off — turn on
-                        when the source is dim, blurry, or has heavy specular highlights.
-                      </p>
-                      <label class="control-toggle">
-                        <input type="checkbox"
-                          [checked]="pipeline().settings.input_clahe"
-                          (change)="onSettingToggle('input_clahe', $event)" />
-                        <span>
-                          CLAHE contrast
-                          <app-info-tip label="CLAHE contrast"
-                            text="Contrast Limited Adaptive Histogram Equalisation. Boosts local contrast in dim or muddy photos so sculptok sees more facial detail. Don't enable on already-bright studio shots — it'll posterise."></app-info-tip>
-                        </span>
-                      </label>
-                      <label class="control-toggle">
-                        <input type="checkbox"
-                          [checked]="pipeline().settings.input_denoise"
-                          (change)="onSettingToggle('input_denoise', $event)" />
-                        <span>
-                          Denoise
-                          <app-info-tip label="Denoise"
-                            text="Bilateral denoise. Smooths out sensor grain and JPEG noise without losing edges. Useful for high-ISO phone shots; skip for clean stock photography."></app-info-tip>
-                        </span>
-                      </label>
-                      <label class="control-toggle">
-                        <input type="checkbox"
-                          [checked]="pipeline().settings.input_remove_specular"
-                          (change)="onSettingToggle('input_remove_specular', $event)" />
-                        <span>
-                          Remove specular highlights
-                          <app-info-tip label="Remove specular highlights"
-                            text="Caps the brightest pixels (typically reflections off skin or jewellery) so sculptok doesn't read them as raised features. Helps with shiny foreheads, wet lips, polished metal."></app-info-tip>
-                        </span>
-                      </label>
-                      <div class="control-group">
-                        <label for="wiz-bg-pattern">
-                          Replace background before sculptok
-                          <app-info-tip label="Replace background"
-                            text="Uses the subject mask (computed automatically) to scrub the photo's background to a flat colour or pattern before sculptok generates the heightmap. With a busy background removed, sculptok focuses on the subject and produces cleaner depth. The same mask is shipped as the LightBurn deliverable when 'Subject mask deliverable' is on, so you don't pay for it twice."></app-info-tip>
-                        </label>
-                        <select id="wiz-bg-pattern"
-                          [value]="pipeline().settings.background_pattern"
-                          (change)="onBackgroundPatternChange($event)">
-                          <option value="none">— don't replace —</option>
-                          <option value="solid_black">Solid black</option>
-                          <option value="solid_white">Solid white</option>
-                          <option value="solid_grey">Solid mid-grey</option>
-                          <option value="guilloche">Guilloché (decorative)</option>
-                          <option value="stripes">Stripes (decorative)</option>
-                          <option value="dots">Dots (decorative)</option>
-                          <option value="halftone">Halftone (decorative)</option>
-                          <option value="checkers">Checkers (decorative)</option>
-                        </select>
-                        @if (pipeline().settings.background_pattern !== 'none' && !pipeline().settings.subject_mask_enabled) {
-                          <p class="muted small disabled-hint">
-                            Background replace needs a subject mask — enabling it
-                            automatically when you select a pattern or click <strong>Generate via Sculptok</strong>.
-                          </p>
-                        }
-                      </div>
-                    </div>
-                  </details>
-
-                  <details class="collapsible-section">
-                    <summary class="collapsible-summary">
-                      Refinement passes <span class="step-tag">optional</span>
-                    </summary>
-                    <div class="collapsible-body">
-                      <p class="muted small">
-                        Extra layers to ship in the .lbrn2 bundle. Each adds a separate
-                        physical pass — they don't subdivide the depth budget.
-                      </p>
-                      <label class="control-toggle">
-                        <input type="checkbox"
-                          [checked]="pipeline().settings.subject_mask_enabled"
-                          (change)="onSettingToggle('subject_mask_enabled', $event)" />
-                        <span>
-                          Subject mask deliverable
-                          <app-info-tip label="Subject mask deliverable"
-                            text="Computes a silhouette mask during render and ships it alongside the heightmap. LightBurn uses it to limit the engraving to the subject area only. Required if you've selected a procedural background pattern."></app-info-tip>
-                        </span>
-                      </label>
-                      <label class="control-toggle">
-                        <input type="checkbox"
-                          [checked]="pipeline().settings.pre_clean_enabled"
-                          (change)="onSettingToggle('pre_clean_enabled', $event)" />
-                        <span>
-                          Pre-clean pass
-                          <app-info-tip label="Pre-clean pass"
-                            text="Defocused full-frame raster pass run BEFORE the depth carve. Burns off oxide, oils, and surface contamination so the relief lands on bare metal. Adds engrave time but improves tonal consistency."></app-info-tip>
-                        </span>
-                      </label>
-                      <label class="control-toggle">
-                        <input type="checkbox"
-                          [checked]="pipeline().settings.photo_tonal_enabled"
-                          (change)="onSettingToggle('photo_tonal_enabled', $event)" />
-                        <span>
-                          Photo-tonal overlay
-                          <app-info-tip label="Photo-tonal overlay"
-                            text="Low-power dithered pass that fires the photo's luminance back over the carved relief. Adds skin tone, hair shading, and clothing patterns that pure depth misses. Tonal-only — does NOT carve depth."></app-info-tip>
-                        </span>
-                      </label>
-                      <label class="control-toggle">
-                        <input type="checkbox"
-                          [checked]="pipeline().settings.polarity_invert"
-                          (change)="onSettingToggle('polarity_invert', $event)" />
-                        <span>
-                          Polarity invert (signet ring)
-                          <app-info-tip label="Polarity invert"
-                            text="Flips the heightmap so the subject engraves DEEP and the background stays at the surface. Use for signet rings, intaglio seals, or any inverted relief where the design is recessed."></app-info-tip>
-                        </span>
-                      </label>
-                      <div class="control-group">
-                        <label for="wiz-sig-text">
-                          Signature text
-                          <app-info-tip label="Signature text"
-                            text="Optional vector text engraved in a corner of the piece. Leave blank to omit. Useful for an artist mark, date, or serial number."></app-info-tip>
-                        </label>
-                        <input id="wiz-sig-text" type="text" maxlength="64"
-                          placeholder="e.g. JB 2026"
-                          [value]="pipeline().settings.signature_text"
-                          (change)="onSettingValue('signature_text', $event)" />
-                      </div>
-                    </div>
-                  </details>
-
-                  <div class="control-actions">
-                    <button type="button"
-                      [disabled]="!canRender() || renderService.inFlight() || renderFresh()"
-                      (click)="renderPreview()">
-                      @if (renderService.inFlight()) {
-                        Rendering…
-                      } @else if (renderFresh()) {
-                        Heightmap ready
-                      } @else if (output().heightmapId) {
-                        Re-render preview
                       } @else {
-                        Render preview
+                        <p class="muted small disabled-hint">Click-refine requires the Simple cutout method.</p>
                       }
-                    </button>
-                  </div>
-                  @if (!session().imageId) {
-                    <p class="muted disabled-hint">Upload an image (step 1) before rendering.</p>
-                  } @else if (!pipeline().settings.external_heightmap_path) {
-                    <p class="muted disabled-hint">Pick a heightmap source above to enable render.</p>
-                  } @else if (renderService.inFlight()) {
-                    <p class="muted disabled-hint">This may take 5–15 seconds depending on image size.</p>
-                  }
-                  @if (output().elapsedSeconds !== null && !renderService.inFlight()) {
-                    <p class="muted">Rendered in {{ output().elapsedSeconds | number: '1.2-2' }} s — ready for step 4.</p>
+                    </div>
                   }
                 </div>
               }
 
-              <!-- Page 3: Material & Passes -->
-              @if (ui().wizardPage === 3) {
-                <h2>{{ wizardPageLabels[3] }}</h2>
-                <p>{{ stageSummaries[3] }}</p>
+              <!-- Page 6: Export -->
+              @if (ui().wizardPage === 6) {
+                <h2>{{ wizardPageLabels[6] }}</h2>
+                <p class="muted">{{ stageSummaries[6] }}</p>
                 <div class="wizard-controls">
                   <div class="control-group">
                     <label for="wiz-profile">
@@ -681,7 +983,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   </div>
                   @if (!output().heightmapId) {
                     <p class="muted disabled-hint">
-                      Render the heightmap on step 3 first — the pass plan needs it.
+                      Generate the depth map on step 5 first — the pass plan needs it.
                     </p>
                   } @else if (!pipeline().render.profileName) {
                     <p class="muted disabled-hint">
@@ -709,16 +1011,17 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                           </li>
                         }
                       </ol>
+                      @if (plan.estimatedRuntimeS > 0) {
+                        <p class="plan-runtime">
+                          Estimated burn time: <strong>{{ formatRuntimeS(plan.estimatedRuntimeS) }}</strong>
+                          @if (plan.estimatedRuntimeS > 7200) {
+                            <span class="runtime-warning">Long job — plan around your session</span>
+                          }
+                        </p>
+                      }
                     </section>
                   }
-                </div>
-              }
 
-              <!-- Page 4: Review & Export -->
-              @if (ui().wizardPage === 4) {
-                <h2>{{ wizardPageLabels[4] }}</h2>
-                <p>{{ stageSummaries[4] }}</p>
-                <div class="wizard-controls">
                   <dl class="summary-grid">
                     <div>
                       <dt>Image</dt>
@@ -726,7 +1029,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         @if (session().imageId) {
                           Uploaded ✓
                         } @else {
-                          <button type="button" class="link-button" (click)="selectPage(0)">Not uploaded — go to step 1 →</button>
+                          <button type="button" class="link-button" (click)="selectPage(1)">Not uploaded — go to step 2 →</button>
                         }
                       </dd>
                     </div>
@@ -740,7 +1043,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         @if (output().heightmapId) {
                           Rendered ✓
                         } @else {
-                          <button type="button" class="link-button" (click)="selectPage(2)">Not rendered — go to step 3 →</button>
+                          <button type="button" class="link-button" (click)="selectPage(4)">Not rendered — go to step 5 →</button>
                         }
                       </dd>
                     </div>
@@ -750,14 +1053,14 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                         @if (output().plan) {
                           {{ output().plan!.passes.length }} passes ready
                         } @else {
-                          <button type="button" class="link-button" (click)="selectPage(3)">Not computed — go to step 4 →</button>
+                          Not computed — select a material profile above
                         }
                       </dd>
                     </div>
                   </dl>
                   @if (!output().heightmapId) {
                     <p class="muted disabled-hint export-banner">
-                      Render the heightmap on step 3 to enable PNG and STL — the pass plan
+                      Generate the depth map on step 5 to enable PNG and STL — the pass plan
                       then auto-computes and unlocks .lbrn2.
                     </p>
                   } @else if (!output().plan) {
@@ -830,7 +1133,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                   </button>
                 } @else {
                   <button type="button"
-                    [disabled]="ui().wizardPage === 0 && !targetService.active()"
+                    [disabled]="ui().wizardPage === 0 && pageStatus(0) !== 'complete'"
                     (click)="nextPage()">
                     Next →
                   </button>
@@ -1057,7 +1360,7 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
 
     .wizard-page-strip {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(8, 1fr);
       gap: 0.4rem;
       padding: 0.75rem 1.5rem 0;
     }
@@ -1305,6 +1608,30 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       display: grid;
       grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
       gap: 1rem;
+    }
+
+    .stale-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      padding: 0.55rem 0.85rem;
+      border: 1px solid var(--warning-border, #b8860b);
+      border-radius: 0.6rem;
+      background: var(--warning-bg, rgba(184, 134, 11, 0.12));
+      font-size: 0.85rem;
+    }
+
+    .stale-banner button {
+      flex-shrink: 0;
+      padding: 0.35rem 0.8rem;
+      border: 1px solid var(--warning-border, #b8860b);
+      border-radius: 0.5rem;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
     }
 
     .wizard-current-page,
@@ -1557,6 +1884,26 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       border-radius: 0.25rem;
       border: 1px solid var(--border-input);
       flex-shrink: 0;
+    }
+
+    .plan-runtime {
+      margin-top: 0.75rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .runtime-warning {
+      background: color-mix(in srgb, var(--color-warn, #f59e0b) 15%, transparent);
+      color: var(--color-warn-text, #92400e);
+      border: 1px solid color-mix(in srgb, var(--color-warn, #f59e0b) 40%, transparent);
+      border-radius: 0.25rem;
+      padding: 0.1rem 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
     }
 
     .click-refine-panel {
@@ -2025,18 +2372,34 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
 
     .chip-meta {
       font-size: 0.73rem;
-      color: var(--text-muted);
       font-weight: 400;
+      opacity: 0.72;
     }
 
-    .target-chip.active .chip-meta {
-      color: color-mix(in srgb, var(--action-fg) 75%, transparent);
+    .chip-size {
+      font-size: 0.7rem;
+      font-weight: 400;
+      opacity: 0.6;
+      display: block;
+      letter-spacing: 0;
+    }
+
+    .target-chip.active .chip-meta,
+    .target-chip.active .chip-size {
+      opacity: 0.85;
+    }
+
+    .preset-notes {
+      border-left: 3px solid var(--border-default);
+      padding-left: 0.6rem;
+      margin-top: -0.25rem;
     }
 
     .target-chip.active {
       background: var(--action-bg);
       border-color: var(--action-bg);
       color: var(--action-fg);
+      box-shadow: 0 0 0 2px var(--action-bg), 0 0 0 4px color-mix(in srgb, var(--action-bg) 30%, transparent);
     }
 
     .required-mark {
@@ -2070,12 +2433,141 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       font-size: 0.85rem;
     }
 
+    .shape-canvas-section {
+      position: relative;
+    }
+
+    .canvas-drop-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: rgba(255,255,255,0.65);
+      border-radius: 0 0 0.75rem 0.75rem;
+    }
+
+    .canvas-drop-overlay--active {
+      background: rgba(255,255,255,0.08);
+      outline: 2px dashed rgba(255,255,255,0.4);
+      outline-offset: -4px;
+    }
+
+    .canvas-drop-icon {
+      font-size: 2rem;
+      line-height: 1;
+      opacity: 0.6;
+    }
+
+    .canvas-meta-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.4rem 0.85rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      background: var(--bg-sunken);
+      border-top: 1px solid var(--border-default);
+    }
+
+    .canvas-replace-link {
+      margin-left: auto;
+      cursor: pointer;
+      color: var(--text-link, var(--color-accent));
+      font-size: 0.75rem;
+      text-decoration: underline;
+    }
+
+    .browse-file-btn {
+      display: block;
+      width: 100%;
+      text-align: center;
+      padding: 0.55rem 1rem;
+      border: 1px dashed var(--border-input);
+      border-radius: 0.75rem;
+      cursor: pointer;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      background: var(--bg-sunken);
+      transition: border-color 0.15s, color 0.15s;
+    }
+
+    .browse-file-btn:hover {
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+    }
+
+    .shape-canvas--placeholder {
+      opacity: 0.85;
+    }
+
     .shape-canvas {
       display: block;
       width: 100%;
       height: auto;
       cursor: crosshair;
       touch-action: none;
+    }
+
+    /* ── Polarity toggle ─────────────────────────────────────────────── */
+    .polarity-toggle {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .polarity-option {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.85rem;
+      border: 1px solid var(--border-input);
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      transition: border-color 0.12s, background 0.12s, color 0.12s;
+    }
+
+    .polarity-option input[type="radio"] {
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
+    .polarity-option.active {
+      background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ── Size inputs ──────────────────────────────────────────────────── */
+    .size-inputs {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .size-inputs input[type="number"] {
+      width: 5.5rem;
+      text-align: center;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid var(--border-input);
+      border-radius: 0.5rem;
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      font: inherit;
+      font-size: 0.875rem;
+    }
+
+    .size-sep {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
     }
 
     /* ── Plan ready badge ────────────────────────────────────────────── */
@@ -2093,6 +2585,32 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
       flex: 1;
       font-size: 0.85rem;
       font-weight: 600;
+      color: var(--accent);
+    }
+
+    .stage-badge {
+      padding: 0.6rem 0.85rem;
+      border-radius: 0.65rem;
+      font-size: 0.85rem;
+      font-weight: 500;
+      border: 1px solid currentColor;
+    }
+    .stage-badge--info {
+      background: color-mix(in srgb, #2563eb 8%, var(--bg-surface));
+      color: #2563eb;
+      border-color: #2563eb;
+    }
+    .stage-badge--success {
+      background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .preflight-step--info {
+      border-left-color: #2563eb;
+      background: color-mix(in srgb, #2563eb 5%, var(--bg-surface));
+    }
+    .preflight-step--done > strong::after {
+      content: ' ✓';
       color: var(--accent);
     }
 
@@ -2152,6 +2670,7 @@ export class WizardShellComponent {
   protected readonly wizardPageLabels = WIZARD_PAGE_LABELS;
   protected readonly wizardPageOptional = WIZARD_PAGE_OPTIONAL;
   protected readonly stageSummaries = WIZARD_STAGE_SUMMARIES;
+  protected readonly allShapes = ALL_SHAPES;
   protected readonly maskBackends = WIZARD_MASK_BACKENDS;
   protected readonly sculptokStageLabels = SCULPTOK_STAGE_LABELS;
   protected readonly sessionTree = inject(SessionTreeService);
@@ -2397,18 +2916,17 @@ export class WizardShellComponent {
     // Auto-advance: when the current step's artifact is produced, move to the
     // next step automatically. Uses _autoAdvanced so manually going back to a
     // completed step doesn't hijack the user forward again.
-    // Page 3 (Material & Passes) is excluded: the plan may auto-compute in
-    // the background before the user has had a chance to review or change
-    // their material profile. They must click Next explicitly.
+    // Steps 0 (Blank), 2 (Image Prep), 3 (Checkpoint), and 6 (Export) are
+    // excluded — they require deliberate user action.
     effect(() => {
       const page = this.ui().wizardPage;
       if (page >= this.wizardPageLabels.length - 1) return;
-      if (page === 3) return;
+      if (page === 0 || page === 2 || page === 3 || page === 6) return;
       if (this.pageStatus(page) !== 'complete') return;
       untracked(() => {
         if (this._autoAdvanced().has(page)) return;
         this._autoAdvanced.update(s => { const n = new Set(s); n.add(page); return n; });
-        this.selectPage((page + 1) as 0 | 1 | 2 | 3 | 4);
+        this.selectPage((page + 1) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
       });
     });
 
@@ -2426,40 +2944,62 @@ export class WizardShellComponent {
       });
     });
 
-    // Redraw canvas whenever image, shape, or overlay changes.
+    // Redraw canvas whenever image, shape, overlay, or target changes.
     effect(() => {
       const canvas = this._shapeCanvas();
       this._shapeImgLoaded(); // subscribe
       this.cropOverlay();     // subscribe
       this.targetService.activeShape(); // subscribe
+      this.targetService.active();      // subscribe — redraw placeholder when target set
+      this.session().imageId;           // subscribe — clear placeholder when image loads
       if (canvas) this._drawShapeCanvas(canvas);
     });
 
-    // When target changes, reset overlay to fit target aspect ratio over image.
+    // Reset canvas overlay when a preset is applied (preset click, not manual size typing).
+    // Reads dimensions from the signals but only reactive to targetService.active() changing
+    // so typing in the size inputs does not interrupt the user's in-progress crop position.
     effect(() => {
-      const preset = this.targetService.activePreset();
-      const meta = this.session().sourceMeta;
-      if (!preset || !meta || preset.print_height_mm <= 0) return;
-      untracked(() => {
-        const targetAspect = preset.print_width_mm / preset.print_height_mm;
-        const imageAspect = meta.w / meta.h;
-        let w: number, h: number;
-        if (targetAspect > imageAspect) {
-          w = 0.85; h = 0.85 * imageAspect / targetAspect;
-        } else {
-          h = 0.85; w = 0.85 * targetAspect / imageAspect;
-        }
-        this.cropOverlay.set({ cx: 0.5, cy: 0.5, w: Math.max(0.15, Math.min(0.95, w)), h: Math.max(0.15, Math.min(0.95, h)) });
-      });
+      void this.targetService.active(); // reactive trigger — preset changed
+      const blankW = untracked(() => this.targetService.printWidthMm());
+      const blankH = untracked(() => this.targetService.printHeightMm());
+      const meta = untracked(() => this.session().sourceMeta);
+      if (!meta || blankW <= 0 || blankH <= 0) return;
+      const targetAspect = blankW / blankH;
+      const imageAspect = meta.w / meta.h;
+      let w: number, h: number;
+      if (targetAspect > imageAspect) {
+        w = 0.85; h = 0.85 * imageAspect / targetAspect;
+      } else {
+        h = 0.85; w = 0.85 * targetAspect / imageAspect;
+      }
+      this.cropOverlay.set({ cx: 0.5, cy: 0.5, w: Math.max(0.15, Math.min(0.95, w)), h: Math.max(0.15, Math.min(0.95, h)) });
     });
 
-    // Sync auto-crop aspect ratio from overlay dimensions whenever overlay changes.
+    // Keep overlay shape correct whenever blank dimensions OR the source photo change.
+    // This handles: manual size typing before/after upload, photo replacement, and
+    // page reloads where state is restored but the overlay defaults to {0.75, 0.75}.
+    // Preserves the user's crop centre (cx/cy); only corrects w/h to match the blank aspect.
+    effect(() => {
+      const meta = this.session().sourceMeta;
+      const blankW = this.targetService.printWidthMm();
+      const blankH = this.targetService.printHeightMm();
+      if (!meta || blankW <= 0 || blankH <= 0) return;
+      untracked(() => this._resizeOverlayForCurrentBlank());
+    });
+
+    // Sync auto-crop parameters from overlay whenever overlay changes.
+    // Writes aspect + position so the backend respects where the user
+    // positioned the canvas overlay, not just the aspect ratio.
     effect(() => {
       const ov = this.cropOverlay();
       const meta = this.session().sourceMeta;
       if (!meta || ov.w <= 0 || ov.h <= 0) return;
       const aspect = (ov.w * meta.w) / (ov.h * meta.h);
-      untracked(() => this.renderService.patchSettings('input_auto_crop_aspect', aspect));
+      untracked(() => {
+        this.renderService.patchSettings('input_auto_crop_aspect', aspect);
+        this.renderService.patchSettings('input_auto_crop_cx', ov.cx);
+        this.renderService.patchSettings('input_auto_crop_cy', ov.cy);
+      });
     });
 
   }
@@ -2469,19 +3009,23 @@ export class WizardShellComponent {
    * Used by the chip indicator to show ✓/○ at a glance.
    *
    * Step semantics:
-   *   0 Upload          — complete when an image is uploaded
-   *   1 Subject (mask)  — optional; complete when a mask exists
-   *   2 Prep & Refine   — complete when the heightmap has rendered
-   *   3 Material/Passes — complete when a pass plan exists
-   *   4 Review & Export — terminal; "complete" once a heightmap is ready
+   *   0 Blank        — complete when shape + size are set
+   *   1 Canvas       — complete when an image is uploaded
+   *   2 Image Prep   — complete when image is ready (prep is optional controls)
+   *   3 Checkpoint   — complete when blank + image are both set
+   *   4 Depth Map    — complete when heightmap has been generated
+   *   5 Subject Mask — optional; complete when a mask exists
+   *   6 Export       — complete when a pass plan exists
    */
   protected pageStatus(index: number): 'complete' | 'incomplete' {
     switch (index) {
-      case 0: return this.session().imageId ? 'complete' : 'incomplete';
-      case 1: return this.pipeline().mask.maskId ? 'complete' : 'incomplete';
-      case 2: return this.output().heightmapId ? 'complete' : 'incomplete';
-      case 3: return this.output().plan ? 'complete' : 'incomplete';
+      case 0: return (!!this.targetService.activeShape() && this.targetService.printWidthMm() > 0 && this.targetService.printHeightMm() > 0) ? 'complete' : 'incomplete';
+      case 1: return this.session().imageId ? 'complete' : 'incomplete';
+      case 2: return this.session().imageId ? 'complete' : 'incomplete';
+      case 3: return (this.pageStatus(0) === 'complete' && !!this.session().imageId) ? 'complete' : 'incomplete';
       case 4: return this.output().heightmapId ? 'complete' : 'incomplete';
+      case 5: return this.pipeline().mask.maskId ? 'complete' : 'incomplete';
+      case 6: return this.output().plan ? 'complete' : 'incomplete';
       default: return 'incomplete';
     }
   }
@@ -2564,6 +3108,16 @@ export class WizardShellComponent {
     const minutes = Math.floor(totalSec / 60);
     const seconds = totalSec % 60;
     return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  }
+
+  protected formatRuntimeS(s: number): string {
+    if (!s || s <= 0) return '—';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.round(s % 60);
+    if (h > 0) return `${h}h ${m}m ${sec.toString().padStart(2, '0')}s`;
+    if (m > 0) return `${m}m ${sec.toString().padStart(2, '0')}s`;
+    return `${s.toFixed(1)}s`;
   }
 
   protected onFileSelected(event: Event): void {
@@ -2656,6 +3210,58 @@ export class WizardShellComponent {
 
   protected onTargetSelect(name: string): void {
     this.targetService.apply(name);
+  }
+
+  protected onWidthMmChange(event: Event): void {
+    const val = parseFloat((event.target as HTMLInputElement).value);
+    if (!Number.isNaN(val) && val > 0) {
+      this.targetService.setDimensions(val, this.targetService.printHeightMm());
+      this._updateAspectFromSize();
+    }
+  }
+
+  protected onHeightMmChange(event: Event): void {
+    const val = parseFloat((event.target as HTMLInputElement).value);
+    if (!Number.isNaN(val) && val > 0) {
+      this.targetService.setDimensions(this.targetService.printWidthMm(), val);
+      this._updateAspectFromSize();
+    }
+  }
+
+  private _updateAspectFromSize(): void {
+    const w = this.targetService.printWidthMm();
+    const h = this.targetService.printHeightMm();
+    if (w > 0 && h > 0) {
+      this.renderService.patchSettings('input_auto_crop_aspect', w / h);
+      this._resizeOverlayForCurrentBlank();
+    }
+  }
+
+  /** Recalculate overlay w/h to match the current blank aspect ratio.
+   *  Preserves the user's crop centre position (cx/cy). */
+  private _resizeOverlayForCurrentBlank(): void {
+    const blankW = this.targetService.printWidthMm();
+    const blankH = this.targetService.printHeightMm();
+    const meta = this.session().sourceMeta;
+    if (!meta || blankW <= 0 || blankH <= 0) return;
+    const targetAspect = blankW / blankH;
+    const imageAspect = meta.w / meta.h;
+    let ow: number, oh: number;
+    if (targetAspect > imageAspect) {
+      ow = 0.85; oh = 0.85 * imageAspect / targetAspect;
+    } else {
+      oh = 0.85; ow = 0.85 * targetAspect / imageAspect;
+    }
+    const current = this.cropOverlay();
+    this.cropOverlay.set({
+      cx: current.cx, cy: current.cy,
+      w: Math.max(0.15, Math.min(0.95, ow)),
+      h: Math.max(0.15, Math.min(0.95, oh)),
+    });
+  }
+
+  protected onPolarityChange(inverted: boolean): void {
+    this.renderService.patchSettings('polarity_invert', inverted);
   }
 
   protected sculptokGenerate(): void {
@@ -2756,19 +3362,20 @@ export class WizardShellComponent {
   }
 
   protected selectPage(index: number): void {
-    const page = index as 0 | 1 | 2 | 3 | 4;
+    const page = index as 0 | 1 | 2 | 3 | 4 | 5 | 6;
     this.sessionTree.setWizardPage(page);
     this.sessionTree.pushHistory(`Navigated to ${this.wizardPageLabels[page]}`);
   }
 
   protected previousPage(): void {
-    const previous = Math.max(0, this.ui().wizardPage - 1) as 0 | 1 | 2 | 3 | 4;
+    const previous = Math.max(0, this.ui().wizardPage - 1) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
     this.selectPage(previous);
   }
 
   protected nextPage(): void {
-    if (this.ui().wizardPage === 0 && !this.targetService.active()) return;
-    const next = Math.min(this.wizardPageLabels.length - 1, this.ui().wizardPage + 1) as 0 | 1 | 2 | 3 | 4;
+    if (this.ui().wizardPage === 0 && this.pageStatus(0) !== 'complete') return;
+    if (this.ui().wizardPage === 1 && !this.session().imageId) return;
+    const next = Math.min(this.wizardPageLabels.length - 1, this.ui().wizardPage + 1) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
     this.selectPage(next);
   }
 
@@ -2784,7 +3391,30 @@ export class WizardShellComponent {
 
   private _drawShapeCanvas(canvas: HTMLCanvasElement): void {
     const meta = this.session().sourceMeta;
-    if (!meta) return;
+    const shape = this.targetService.activeShape() ?? 'rectangle';
+
+    // No image yet — draw a static placeholder showing the blank shape outline.
+    if (!meta) {
+      const W = 600, H = 340;
+      if (canvas.width !== W) canvas.width = W;
+      if (canvas.height !== H) canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.fillStyle = '#141414';
+      ctx.fillRect(0, 0, W, H);
+      if (this.targetService.activeShape()) {
+        const pw = W * 0.55, ph = H * 0.72;
+        const px = (W - pw) / 2, py = (H - ph) / 2;
+        ctx.save();
+        ctx.setLineDash([8, 6]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = 2;
+        this._pathForShape(ctx, shape, px, py, pw, ph);
+        ctx.stroke();
+        ctx.restore();
+      }
+      return;
+    }
 
     const W = Math.min(800, meta.w);
     const H = Math.round(W * meta.h / meta.w);
@@ -2807,17 +3437,21 @@ export class WizardShellComponent {
     const ph = H * ov.h;
     const px = W * ov.cx - pw / 2;
     const py = H * ov.cy - ph / 2;
-    const shape = this.targetService.activeShape() ?? 'rectangle';
 
-    // Dim everything outside the shape.
-    ctx.save();
+    // Darken the entire canvas, then redraw the image clipped to the shape
+    // interior so the crop area appears bright and the outside is dimmed.
     ctx.globalAlpha = 0.55;
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
-    ctx.globalCompositeOperation = 'destination-out';
-    this._pathForShape(ctx, shape, px, py, pw, ph);
-    ctx.fill();
-    ctx.restore();
+    ctx.globalAlpha = 1.0;
+
+    if (this._shapeImgLoaded() && this._shapeImg.naturalWidth > 0) {
+      ctx.save();
+      this._pathForShape(ctx, shape, px, py, pw, ph);
+      ctx.clip();
+      ctx.drawImage(this._shapeImg, 0, 0, W, H);
+      ctx.restore();
+    }
 
     // Outline the shape.
     ctx.save();

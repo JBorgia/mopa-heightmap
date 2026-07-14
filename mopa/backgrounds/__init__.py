@@ -11,29 +11,33 @@ shaped ``(H, W)``. The expected use is:
        full-frame relief signal (subject + decorative background)
        instead of a flat background that's hard to read.
 
-Patterns ship: ``guilloche``, ``stripes``, ``dots``, ``halftone``,
-``checkers``. Each accepts a common ``(width, height, scale, angle,
-seed)`` kwargs subset; pattern-specific tuning lives on the individual
-function.
+Patterns ship: ``guilloche``, ``radial_lines``, ``stripes``, ``dots``,
+``halftone``, ``checkers``. Each accepts a common
+``(width, height, scale, angle, seed)`` kwargs subset; pattern-specific
+tuning lives on the individual function.
 """
 from __future__ import annotations
 
 from .generators import (
     PATTERN_NAMES,
+    basket_weave_pattern,
     checkers_pattern,
     dots_pattern,
     generate_pattern,
     guilloche_pattern,
     halftone_pattern,
+    radial_lines_pattern,
     stripes_pattern,
 )
 
 __all__ = [
     "PATTERN_NAMES",
+    "basket_weave_pattern",
     "checkers_pattern",
     "dots_pattern",
     "generate_pattern",
     "guilloche_pattern",
     "halftone_pattern",
+    "radial_lines_pattern",
     "stripes_pattern",
 ]

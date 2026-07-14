@@ -37,3 +37,45 @@ lightburn_starting_point:
   passes: 256
   angle_increment: 45
   cleanup_every_passes: 16
+# --- Zone-based engraving (enables multi-layer .lbrn2 export) --------------
+# Starting points derived from this profile's calibrated sculpt settings —
+# verify with a test grid before production. Stainless anneal-colours: the
+# field pass uses long pulses at moderate speed to heat-tint the background
+# without ablating. zone:device intentionally absent: it falls back to
+# lightburn_starting_point.
+zone_boundary_sigma_scale: 1.0
+
+zone_geometry:
+  border_width_mm: 1.5
+  rim_width_mm: 0.5
+  exergue_height_fraction: 0.18
+
+zone_params:
+  field:
+    speed_mm_s: 1500
+    power_percent: 45
+    frequency_khz: 60
+    pulse_width_ns: 350
+    line_interval_mm: 0.02
+    passes: 2
+  border:
+    speed_mm_s: 1200
+    power_percent: 50
+    frequency_khz: 80
+    pulse_width_ns: 220
+    line_interval_mm: 0.025
+    passes: 4
+  rim:
+    speed_mm_s: 1500
+    power_percent: 35
+    frequency_khz: 80
+    pulse_width_ns: 220
+    line_interval_mm: 0.025
+    passes: 2
+  exergue:
+    speed_mm_s: 800
+    power_percent: 90
+    frequency_khz: 120
+    pulse_width_ns: 220
+    line_interval_mm: 0.02
+    passes: 128

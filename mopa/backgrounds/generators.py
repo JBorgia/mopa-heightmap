@@ -22,10 +22,12 @@ import numpy as np
 
 PATTERN_NAMES: Tuple[str, ...] = (
     "guilloche",
+    "radial_lines",
     "stripes",
     "dots",
     "halftone",
     "checkers",
+    "basket_weave",
     "solid_black",
     "solid_white",
     "solid_grey",
@@ -89,6 +91,46 @@ def guilloche_pattern(
     # squash for a smoother look than pure linear scaling.
     norm = (np.sin(accum * 0.6) + 1.0) * 0.5
     return np.clip(norm, 0.0, 1.0).astype(np.float32)
+
+
+# ----------------------------------------------------------- radial lines
+
+def radial_lines_pattern(
+    width: int,
+    height: int,
+    *,
+    scale: float = 1.0,
+    angle: float = 0.0,
+    seed: int = 0,
+    duty: float = 0.35,
+) -> np.ndarray:
+    """Sunburst radial lines radiating from the image centre.
+
+    ``scale`` controls ray density (1.0 ≈ 72 rays for a typical coin field).
+    ``duty`` is the angular fraction of each sector that is a raised line
+    (0.35 = lines occupy 35 % of the arc, gaps 65 %).
+    ``angle`` rotates the whole pattern.
+
+    Returns 1.0 on a raised line, 0.0 in the gap — compose as a field
+    overlay with ``field_pattern_depth`` to set how deep the gap engraves.
+    """
+    del seed
+    xr, yr = _rotation_meshgrid(width, height, angle)
+    theta = np.arctan2(yr, xr)  # −π … π
+    n_lines = max(8, int(72 * max(scale, 0.05)))
+    # Fractional position within each angular sector [0, 1).
+    sector_phase = ((theta / (2.0 * np.pi) + 0.5) * n_lines) % 1.0
+    # Soft cosine edge so lines don't have pixel-staircase borders.
+    # Lines are "raised" (value → 1) when phase < duty.
+    t = np.clip(sector_phase / max(duty, 1e-6), 0.0, 1.0)
+    on_edge = np.clip(sector_phase / max(duty * 0.15, 1e-6), 0.0, 1.0)
+    line = np.where(
+        sector_phase < duty,
+        0.5 + 0.5 * np.cos(np.pi * t),          # cosine fade across line width
+        np.zeros_like(sector_phase, dtype=np.float32),
+    )
+    # Feather leading edge only (trailing is the gap)
+    return np.clip(line, 0.0, 1.0).astype(np.float32)
 
 
 # ----------------------------------------------------------- stripes
@@ -212,6 +254,55 @@ def checkers_pattern(
     return on.astype(np.float32)
 
 
+# ----------------------------------------------------------- basket weave
+
+def basket_weave_pattern(
+    width: int,
+    height: int,
+    *,
+    scale: float = 1.0,
+    angle: float = 0.0,
+    seed: int = 0,
+    strips: int = 3,
+) -> np.ndarray:
+    """Woven basket texture — alternating cells of horizontal / vertical reeds.
+
+    The canvas is tiled into square cells arranged like a checkerboard:
+    even cells carry ``strips`` horizontal rounded reeds, odd cells carry
+    vertical ones. Reed ends fade down near the cell edge they pass
+    "under", which sells the over-under weave illusion in relief.
+    ``scale`` controls cell density; ``angle`` rotates the whole weave.
+    """
+    del seed
+    xr, yr = _rotation_meshgrid(width, height, angle)
+    cell_px = max(8.0, 64.0 / max(scale, 0.05))
+
+    cx = np.floor(xr / cell_px).astype(np.int64)
+    cy = np.floor(yr / cell_px).astype(np.int64)
+    horiz = ((cx + cy) % 2) == 0
+
+    fx = (xr / cell_px) % 1.0   # 0..1 across the cell, along x
+    fy = (yr / cell_px) % 1.0
+
+    n = max(int(strips), 1)
+    # Rounded reed profile across the strip direction.
+    ridge_h = np.sin(np.pi * ((fy * n) % 1.0)).astype(np.float32)
+    ridge_v = np.sin(np.pi * ((fx * n) % 1.0)).astype(np.float32)
+
+    # Under-weave: reeds dip as they approach the cell edges they travel
+    # toward (their ends slide beneath the crossing cell's reeds).
+    end_frac = 0.18
+    fade_h = np.clip(np.minimum(fx, 1.0 - fx) / end_frac, 0.0, 1.0).astype(np.float32)
+    fade_v = np.clip(np.minimum(fy, 1.0 - fy) / end_frac, 0.0, 1.0).astype(np.float32)
+    # Smooth the dip so it reads as a curve under, not a chamfer.
+    fade_h = fade_h * fade_h * (3.0 - 2.0 * fade_h)
+    fade_v = fade_v * fade_v * (3.0 - 2.0 * fade_v)
+
+    val = np.where(horiz, ridge_h * (0.45 + 0.55 * fade_h),
+                          ridge_v * (0.45 + 0.55 * fade_v))
+    return np.clip(val, 0.0, 1.0).astype(np.float32)
+
+
 # ----------------------------------------------------------- solid fills
 
 def solid_black_pattern(
@@ -247,10 +338,12 @@ def solid_grey_pattern(
 
 _PATTERN_DISPATCH = {
     "guilloche": guilloche_pattern,
+    "radial_lines": radial_lines_pattern,
     "stripes": stripes_pattern,
     "dots": dots_pattern,
     "halftone": halftone_pattern,
     "checkers": checkers_pattern,
+    "basket_weave": basket_weave_pattern,
     "solid_black": solid_black_pattern,
     "solid_white": solid_white_pattern,
     "solid_grey": solid_grey_pattern,

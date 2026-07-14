@@ -24,7 +24,7 @@ export class RenderService {
 
   currentRenderKey(): string {
     const { session, pipeline } = this.sessionTree.state();
-    return `${session.imageId}|${pipeline.render.profileName}|${JSON.stringify(pipeline.settings)}`;
+    return `${session.imageId}|${pipeline.render.profileName}|${pipeline.mask.maskId ?? ''}|${JSON.stringify(pipeline.settings)}`;
   }
 
   /**
@@ -63,16 +63,27 @@ export class RenderService {
 
     // Sculptok-only backend: depth comes from settings.external_heightmap_path
     // (set by upload / sculptok auto-pull). The state's `settings` object
-    // mirrors HeightmapSettings 1:1, so we forward it verbatim.
+    // mirrors HeightmapSettings 1:1, so we forward it verbatim. The wizard's
+    // subject mask (if computed) rides along so the render reuses it instead
+    // of re-running mask inference.
     this.apiClient
       .render({
         image_id: state.session.imageId,
         profile_name: render.profileName ?? undefined,
         settings,
+        mask_id: state.pipeline.mask.maskId ?? undefined,
       })
       .subscribe({
         next: (response) => {
           this.blobCache.get(response.image_hash);
+          for (const warning of response.warnings ?? []) {
+            this.sessionTree.addToast({
+              id: crypto.randomUUID(),
+              severity: 'warn',
+              summary: 'Setting had no effect',
+              detail: warning,
+            });
+          }
           const hadPlan = !!this.sessionTree.state().output.plan;
           this.sessionTree.patchState((current) => ({
             ...current,

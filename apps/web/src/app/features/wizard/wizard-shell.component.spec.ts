@@ -137,7 +137,7 @@ describe('WizardShellComponent — full flow', () => {
     expect(apiMock.uploadImage).toHaveBeenCalledWith(file);
     expect(sessionTree.session().imageId).toBe(UPLOAD_RESPONSE.image_id);
     expect(sessionTree.session().sourceMeta?.w).toBe(1920);
-    expect(cmp.pageStatus(0)).toBe('complete');
+    expect(cmp.pageStatus(1)).toBe('complete'); // page 1 = Canvas (upload)
   });
 
   // ── Step 1: Mask (optional) ──────────────────────────────────────────────
@@ -165,8 +165,8 @@ describe('WizardShellComponent — full flow', () => {
       pageStatusIcon: (i: number) => string;
       pageStatus: (i: number) => string;
     };
-    expect(cmp.pageStatus(1)).toBe('incomplete');
-    expect(cmp.pageStatusIcon(1)).toBe('·'); // optional, not done
+    expect(cmp.pageStatus(5)).toBe('incomplete');
+    expect(cmp.pageStatusIcon(5)).toBe('·'); // optional mask page, not done
     expect(cmp.pageStatusIcon(0)).toBe('○'); // required, not done
   });
 
@@ -308,6 +308,54 @@ describe('WizardShellComponent — full flow', () => {
     cmp.exportLbrn2();
     expect(apiMock.exportLbrn2).toHaveBeenCalledWith(
       expect.objectContaining({ plan_id: 'plan-001', heightmap_id: 'hm-001' }),
+    );
+  });
+
+  // ── Zone wiring: mask + blank shape ride along to render/plan/export ─────
+
+  it('render, plan and export.lbrn2 forward the wizard mask and blank shape', async () => {
+    const fixture = TestBed.createComponent(WizardShellComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const cmp = fixture.componentInstance as unknown as {
+      onFileSelected: (e: Event) => void;
+      onHeightmapFileSelected: (e: Event) => void;
+      createMask: () => void;
+      renderPreview: () => void;
+      exportLbrn2: () => void;
+    };
+    cmp.onFileSelected({ target: { files: { item: () => new File(['x'], 'x.jpg') }, value: '' } } as unknown as Event);
+    cmp.createMask();
+    // Blank geometry configured (normally synced from the target/blank step).
+    sessionTree.patchState((current) => ({
+      ...current,
+      pipeline: {
+        ...current.pipeline,
+        settings: {
+          ...current.pipeline.settings,
+          zone_width_mm: 30,
+          zone_height_mm: 30,
+          zone_shape: 'hexagon' as const,
+        },
+      },
+    }));
+    cmp.onHeightmapFileSelected({ target: { files: { item: () => new File(['x'], 'h.png') }, value: '' } } as unknown as Event);
+    cmp.renderPreview();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Render reuses the wizard's mask instead of re-running inference.
+    expect(apiMock.render).toHaveBeenCalledWith(
+      expect.objectContaining({ mask_id: 'mask-001' }),
+    );
+    // Plan cuts zone masks for the actual blank shape.
+    expect(apiMock.plan).toHaveBeenCalledWith(
+      expect.objectContaining({ shape_override: 'hexagon' }),
+    );
+    // Export bakes the wizard mask into the zone:device layer.
+    cmp.exportLbrn2();
+    expect(apiMock.exportLbrn2).toHaveBeenCalledWith(
+      expect.objectContaining({ subject_mask_id: 'mask-001', shape_override: 'hexagon' }),
     );
   });
 

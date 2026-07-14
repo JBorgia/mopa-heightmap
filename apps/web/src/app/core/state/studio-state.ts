@@ -45,6 +45,7 @@ export interface PassPlanEntry {
 export interface PassPlan {
   planId: string;
   passes: PassPlanEntry[];
+  estimatedRuntimeS: number;
 }
 
 export interface ToastMessage {
@@ -107,7 +108,7 @@ export interface StudioState {
   };
   ui: {
     activeRoute: ActiveRoute;
-    wizardPage: 0 | 1 | 2 | 3 | 4;
+    wizardPage: 0 | 1 | 2 | 3 | 4 | 5 | 6;
     rightPaneCollapsed: boolean;
     exportPngEnabled: boolean;
     exportLbrn2Enabled: boolean;
@@ -136,6 +137,8 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   input_auto_crop: false,
   input_auto_crop_aspect: 0.0,
   input_auto_crop_prefer_face: true,
+  input_auto_crop_cx: 0.5,
+  input_auto_crop_cy: 0.5,
 
   // External heightmap source. Set by upload / sculptok auto-pull,
   // not directly editable in the UI.
@@ -168,7 +171,7 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   dither_levels: 256,
 
   // Heightmap enhancement.
-  heightmap_enhance_mode: 'off',
+  heightmap_enhance_mode: 'standard',
 
   // Refinement passes — opt-in.
   pre_clean_enabled: false,
@@ -185,6 +188,33 @@ export const DEFAULT_HEIGHTMAP_SETTINGS: Required<HeightmapSettings> = {
   signature_height_fraction: 0.04,
   signature_margin_fraction: 0.03,
   signature_depth_fraction: 0.6,
+
+  // Zone overlay geometry. Zero disables all zone overlays.
+  zone_width_mm: 0.0,
+  zone_height_mm: 0.0,
+  zone_shape: 'circle',
+  zone_border_width_mm: 1.5,
+  zone_rim_width_mm: 0.5,
+
+  // Field overlay (post-sculptok, composited into zone:field).
+  field_pattern: 'none',
+  field_pattern_scale: 1.0,
+  field_pattern_angle: 0.0,
+  field_pattern_depth: 0.70,
+
+  // Rim overlay.
+  rim_pattern: 'none',
+  rim_bead_count: 72,
+  rim_reed_count: 120,
+  rim_pattern_depth: 1.0,
+
+  // Border overlay.
+  border_pattern: 'none',
+  border_pattern_depth: 0.85,
+  border_strand_count: 2,
+  border_twist_periods: 40,
+  border_leaf_count: 12,
+  border_key_count: 24,
 };
 
 export const DEFAULT_STUDIO_STATE: StudioState = {

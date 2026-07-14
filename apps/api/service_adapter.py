@@ -61,6 +61,7 @@ from mopa.stages import (
     EngravingPass,
     PassPlan,
 )
+from mopa.burn_time import estimate_burn_time
 from mopa.zones import (
     zone_masks_from_geometry,
     zone_hm_for_pass,
@@ -136,6 +137,14 @@ def _profile_kind_color_overrides(profile_payload: Optional[Dict[str, Any]] = No
 _svc_lock = threading.Lock()
 _svc: Optional[HeightmapService] = None
 
+# ---------------------------------------------------------------------------
+# Masker model cache — avoids reloading ML weights on every /mask request.
+# Keyed by backend name (e.g. "rembg", "birefnet", "threshold").
+# ---------------------------------------------------------------------------
+
+_masker_lock = threading.Lock()
+_masker_cache: Dict[str, Any] = {}
+
 
 def get_service() -> HeightmapService:
     global _svc
@@ -194,10 +203,19 @@ def do_render(
     image_id: str,
     settings: HeightmapSettings,
     profile_name: Optional[str] = None,
+    mask_id: Optional[str] = None,
 ) -> RenderResponse:
     image = get_upload(image_id)
     if image is None:
         raise KeyError(f"Unknown image_id: {image_id!r}")
+
+    # Wizard-supplied subject mask — reuse it instead of re-running
+    # inference from settings.subject_mask_backend.
+    subject_alpha_override: Optional[np.ndarray] = None
+    if mask_id:
+        subject_alpha_override = blob_store.load_heightmap(mask_id)
+        if subject_alpha_override is None:
+            raise KeyError(f"Unknown mask_id: {mask_id!r}")
 
     profile_data: Dict[str, Any] = {}
     if profile_name:
@@ -206,7 +224,9 @@ def do_render(
     merged = merge_profile_settings(profile_data, heightmap_settings_to_dict(settings))
     svc = get_service()
 
-    result: PreviewResult = svc.render(image, merged)
+    result: PreviewResult = svc.render(
+        image, merged, subject_alpha_override=subject_alpha_override
+    )
 
     heightmap_id = blob_store.store_heightmap(result.heightmap)
     # Store the plain greyscale depth map (not the diagnostic composite panel)
@@ -237,6 +257,7 @@ def do_render(
         image_hash=result.image_hash,
         conditioned_id=conditioned_id,
         render_mask_id=render_mask_id,
+        warnings=list(result.warnings),
     )
 
 
@@ -254,6 +275,15 @@ def _gaussian_blur_alpha(alpha: np.ndarray, radius: int) -> np.ndarray:
         return alpha
 
 
+def _get_masker(backend: str) -> Any:
+    """Return a cached masker for ``backend``, loading it on first call."""
+    with _masker_lock:
+        if backend not in _masker_cache:
+            masker, _ = load_masker(backend, device="cpu")
+            _masker_cache[backend] = masker
+        return _masker_cache[backend]
+
+
 def do_mask(
     image_id: str,
     backend: str,
@@ -263,7 +293,7 @@ def do_mask(
     if image is None:
         raise KeyError(f"Unknown image_id: {image_id!r}")
 
-    masker, _ = load_masker(backend, device="cpu")
+    masker = _get_masker(backend)
     raw = masker.infer(image)
     alpha = raw.alpha if hasattr(raw, "alpha") else np.asarray(raw, dtype=np.float32)
     radius = int(edge_softness * max(image.size) * 0.05)
@@ -557,6 +587,14 @@ def do_export_lbrn2(
                     eff_mask = np.clip(ep.mask.astype(np.float32, copy=False) * (1.0 - device_mask), 0.0, 1.0)
                 else:
                     eff_mask = ep.mask.astype(np.float32, copy=False)
+                # Guard: zone mask was computed at plan time and may differ in
+                # resolution from the heightmap loaded at export time.
+                if eff_mask.shape != (px_h, px_w):
+                    _em_pil = Image.fromarray(
+                        (np.clip(eff_mask, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8),
+                        mode="L",
+                    ).resize((px_w, px_h), Image.LANCZOS)
+                    eff_mask = np.asarray(_em_pil, dtype=np.float32) / 255.0
                 layer = zone_hm_for_pass(hm, eff_mask)
             else:
                 mask = ep.mask.astype(np.float32, copy=False)
@@ -971,13 +1009,50 @@ def do_plan(
     plan_id = store_plan(result)
     per_pass_depth = 0.0
 
+    _KIND_LABELS: Dict[str, str] = {
+        "pre_clean":    "Pre-clean — oxidation burn-off",
+        "form":         "Form — 3D depth carve",
+        "photo_tonal":  "Photo-tonal — luminance overlay",
+        "signature":    "Signature",
+        "zone:field":   "Zone: Field — background annealing",
+        "zone:border":  "Zone: Border — decorative band",
+        "zone:rim":     "Zone: Rim — outer edge",
+        "zone:device":  "Zone: Device — subject ablation",
+        "zone:exergue": "Zone: Exergue — bottom text strip",
+    }
+
+    def _pass_label(p: EngravingPass) -> str:
+        base = _KIND_LABELS.get(p.kind)
+        if base:
+            return base
+        # color:CXX passes
+        if p.kind.startswith("color:"):
+            return f"Color — {p.cut_setting.name}"
+        return p.kind
+
     entries = [
         PassEntry(
             pass_number=p.cut_setting.index,
-            label=f"{p.kind}: {p.cut_setting.name}",
+            label=_pass_label(p),
             depth_um=per_pass_depth,
             color_hex=_PASS_PALETTE[p.cut_setting.index % len(_PASS_PALETTE)],
         )
         for p in result.passes
     ]
-    return PassPlanResponse(plan_id=plan_id, passes=entries)
+    # Runtime estimate using profile physical size and pass count.
+    try:
+        _starting = profile_payload.get("lightburn_starting_point", {})
+        _pass_count = int(_starting.get("passes", 256))
+        _w_mm = float(profile_payload.get("print_width_mm", 30.0))
+        _h_mm = float(profile_payload.get("print_height_mm", 30.0))
+        _burn = estimate_burn_time(
+            result,
+            width_mm=_w_mm,
+            height_mm=_h_mm,
+            pass_count_overrides={p.kind: _pass_count for p in result.passes},
+        )
+        _runtime_s = _burn.total_seconds
+    except Exception:
+        _runtime_s = 0.0
+
+    return PassPlanResponse(plan_id=plan_id, passes=entries, estimated_runtime_s=_runtime_s)

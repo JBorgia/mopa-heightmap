@@ -153,20 +153,22 @@ describe('DEFAULT_HEIGHTMAP_SETTINGS', () => {
 // ---------------------------------------------------------------------------
 
 describe('wizard-shell constants', () => {
-  it('WIZARD_PAGE_LABELS has exactly 5 entries', () => {
-    expect(WIZARD_PAGE_LABELS).toHaveLength(5);
+  it('WIZARD_PAGE_LABELS has exactly 7 entries', () => {
+    expect(WIZARD_PAGE_LABELS).toHaveLength(7);
   });
 
   it('WIZARD_PAGE_LABELS matches expected labels in order', () => {
-    expect(WIZARD_PAGE_LABELS[0]).toBe('1. Upload');
-    expect(WIZARD_PAGE_LABELS[1]).toBe('2. Subject');
-    expect(WIZARD_PAGE_LABELS[2]).toBe('3. Prep & Refine');
-    expect(WIZARD_PAGE_LABELS[3]).toBe('4. Material & Passes');
-    expect(WIZARD_PAGE_LABELS[4]).toBe('5. Review & Export');
+    expect(WIZARD_PAGE_LABELS[0]).toBe('1. Blank');
+    expect(WIZARD_PAGE_LABELS[1]).toBe('2. Canvas');
+    expect(WIZARD_PAGE_LABELS[2]).toBe('3. Image Prep');
+    expect(WIZARD_PAGE_LABELS[3]).toBe('4. Checkpoint');
+    expect(WIZARD_PAGE_LABELS[4]).toBe('5. Depth Map');
+    expect(WIZARD_PAGE_LABELS[5]).toBe('6. Subject Mask');
+    expect(WIZARD_PAGE_LABELS[6]).toBe('7. Export');
   });
 
-  it('WIZARD_STAGE_SUMMARIES has exactly 5 entries', () => {
-    expect(WIZARD_STAGE_SUMMARIES).toHaveLength(5);
+  it('WIZARD_STAGE_SUMMARIES has exactly 7 entries', () => {
+    expect(WIZARD_STAGE_SUMMARIES).toHaveLength(7);
   });
 
   it('WIZARD_DEFAULT_SPLITTER_SIZES sums to 100', () => {
@@ -291,18 +293,19 @@ describe('studio-state utilities', () => {
     expect(state.session.imageId).toBe(DEFAULT_STUDIO_STATE.session.imageId);
   });
 
-  it('deserializeStudioState restores wizardPage from valid JSON', () => {
+  it('deserializeStudioState resets wizardPage (ephemeral UI state)', () => {
     const modified = cloneDefaultStudioState();
     modified.ui.wizardPage = 3 as typeof modified.ui.wizardPage;
     const json = serializeStudioState(modified);
     const restored = deserializeStudioState(json);
-    expect(restored.ui.wizardPage).toBe(3);
+    expect(restored.ui.wizardPage).toBe(DEFAULT_STUDIO_STATE.ui.wizardPage);
   });
 
   it('deserializeStudioState merges partial state with defaults', () => {
     const partial = JSON.stringify({ ui: { wizardPage: 2 } });
     const state = deserializeStudioState(partial);
-    expect(state.ui.wizardPage).toBe(2);
+    // wizardPage is ephemeral and always reset on restore.
+    expect(state.ui.wizardPage).toBe(DEFAULT_STUDIO_STATE.ui.wizardPage);
     expect(state.session).toBeDefined();
     expect(state.pipeline).toBeDefined();
   });

@@ -33,6 +33,10 @@ class HeightmapSettings(BaseModel):
     input_auto_crop: bool = False
     input_auto_crop_aspect: float = Field(0.0, ge=0.0, le=10.0)
     input_auto_crop_prefer_face: bool = True
+    # Fractional center [0,1] for the manual crop overlay; 0.5/0.5 = image
+    # centre (same as auto detection).  Written by the wizard canvas on drag.
+    input_auto_crop_cx: float = Field(0.5, ge=0.0, le=1.0)
+    input_auto_crop_cy: float = Field(0.5, ge=0.0, le=1.0)
 
     # External heightmap source (required at render time).
     external_heightmap_path: str = ""
@@ -53,8 +57,8 @@ class HeightmapSettings(BaseModel):
     # photo's background pixels (where the subject mask is 0) BEFORE
     # the photo is sent to sculptok. ``"none"`` disables.
     background_pattern: Literal[
-        "none", "guilloche", "stripes", "dots", "halftone", "checkers",
-        "solid_black", "solid_white", "solid_grey",
+        "none", "guilloche", "radial_lines", "stripes", "dots", "halftone", "checkers",
+        "basket_weave", "solid_black", "solid_white", "solid_grey",
     ] = "none"
     background_scale: float = Field(1.0, ge=0.05, le=20.0)
     background_angle: float = Field(0.0, ge=-180.0, le=180.0)
@@ -71,11 +75,11 @@ class HeightmapSettings(BaseModel):
 
     # Heightmap quality enhancement.  Applied after polarity normalisation
     # to push photo-derived depth maps toward coin/relief quality.
-    # 'off'      — passthrough (default, preserves exact Sculptok output)
+    # 'off'      — passthrough (preserves exact Sculptok output)
     # 'portrait' — gentle contrast + mild gamma; natural-looking portraits
-    # 'standard' — moderate stretch + gamma + light unsharp mask
-    # 'coin'     — aggressive stretch + gamma + CLAHE + unsharp mask
-    heightmap_enhance_mode: Literal["off", "portrait", "standard", "coin"] = "off"
+    # 'standard' — moderate stretch + gamma + light unsharp mask (default)
+    # 'coin'     — aggressive stretch + CLAHE + gamma + unsharp mask
+    heightmap_enhance_mode: Literal["off", "portrait", "standard", "coin"] = "standard"
 
     # Pre-clean pass — defocused full-frame oxide / oil burn-off. Opt-in.
     pre_clean_enabled: bool = False
@@ -94,6 +98,40 @@ class HeightmapSettings(BaseModel):
     signature_height_fraction: float = Field(0.04, ge=0.005, le=0.5)
     signature_margin_fraction: float = Field(0.03, ge=0.0, le=0.5)
     signature_depth_fraction: float = Field(0.6, ge=0.0, le=1.0)
+
+    # Zone overlay geometry. Zero disables all zone overlays.
+    zone_width_mm: float = Field(0.0, ge=0.0, le=300.0)
+    zone_height_mm: float = Field(0.0, ge=0.0, le=300.0)
+    zone_shape: Literal[
+        "circle", "rectangle", "oval", "hexagon", "triangle", "donut", "shield",
+    ] = "circle"
+    zone_border_width_mm: float = Field(1.5, ge=0.0, le=20.0)
+    zone_rim_width_mm: float = Field(0.5, ge=0.0, le=10.0)
+
+    # Field overlay — post-sculptok pattern composited into zone:field.
+    field_pattern: Literal[
+        "none", "guilloche", "radial_lines", "stripes", "dots", "halftone", "checkers",
+        "basket_weave",
+    ] = "none"
+    field_pattern_scale: float = Field(1.0, ge=0.05, le=20.0)
+    field_pattern_angle: float = Field(0.0, ge=-180.0, le=180.0)
+    field_pattern_depth: float = Field(0.70, ge=0.0, le=1.0)
+
+    # Rim overlay — beaded or reeded (milled) ring inside the outer edge.
+    rim_pattern: Literal["none", "beaded", "reeded"] = "none"
+    rim_bead_count: int = Field(72, ge=8, le=360)
+    rim_reed_count: int = Field(120, ge=16, le=720)
+    rim_pattern_depth: float = Field(1.0, ge=0.0, le=1.0)
+
+    # Border overlay — ornamental annulus between rim and field.
+    border_pattern: Literal[
+        "none", "rope_twist", "acanthus_wave", "greek_key", "laurel",
+    ] = "none"
+    border_pattern_depth: float = Field(0.85, ge=0.0, le=1.0)
+    border_strand_count: int = Field(2, ge=1, le=8)
+    border_twist_periods: int = Field(40, ge=4, le=200)
+    border_leaf_count: int = Field(12, ge=4, le=64)
+    border_key_count: int = Field(24, ge=4, le=120)
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +159,10 @@ class RenderRequest(BaseModel):
     image_id: str
     settings: HeightmapSettings = Field(default_factory=HeightmapSettings)
     profile_name: Optional[str] = None
+    # Precomputed subject mask (POST /mask result). When set, the render
+    # reuses this mask instead of re-running inference from
+    # settings.subject_mask_backend.
+    mask_id: Optional[str] = None
 
 
 class RenderResponse(BaseModel):
@@ -136,6 +178,9 @@ class RenderResponse(BaseModel):
     # Subject mask computed during render (only when subject_mask_enabled).
     # Separate from the user-driven /mask flow which has its own mask_id.
     render_mask_id: Optional[str] = None
+    # Features the user configured but that couldn't take effect (e.g.
+    # background pattern with no subject mask). Shown as toasts in the UI.
+    warnings: List[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +231,7 @@ class PassEntry(BaseModel):
 class PassPlanResponse(BaseModel):
     plan_id: str
     passes: List[PassEntry]
+    estimated_runtime_s: float = 0.0
 
 
 class ExportPngRequest(BaseModel):

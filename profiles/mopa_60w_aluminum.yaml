@@ -64,3 +64,43 @@ lightburn_starting_point:
   passes: 256
   angle_increment: 45
   cleanup_every_passes: 18
+# --- Zone-based engraving (enables multi-layer .lbrn2 export) --------------
+# Starting points derived from this profile's calibrated sculpt settings —
+# verify with a test grid before production. zone:device intentionally
+# absent: it falls back to lightburn_starting_point.
+zone_boundary_sigma_scale: 1.0
+
+zone_geometry:
+  border_width_mm: 1.5
+  rim_width_mm: 0.5
+  exergue_height_fraction: 0.18
+
+zone_params:
+  field:
+    speed_mm_s: 2600
+    power_percent: 30
+    frequency_khz: 100
+    pulse_width_ns: 120
+    line_interval_mm: 0.02
+    passes: 2
+  border:
+    speed_mm_s: 1500
+    power_percent: 40
+    frequency_khz: 80
+    pulse_width_ns: 160
+    line_interval_mm: 0.02
+    passes: 4
+  rim:
+    speed_mm_s: 1900
+    power_percent: 28
+    frequency_khz: 80
+    pulse_width_ns: 140
+    line_interval_mm: 0.02
+    passes: 2
+  exergue:
+    speed_mm_s: 900
+    power_percent: 80
+    frequency_khz: 80
+    pulse_width_ns: 180
+    line_interval_mm: 0.02
+    passes: 128

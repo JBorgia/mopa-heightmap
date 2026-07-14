@@ -297,12 +297,12 @@ def zone_hm_for_pass(
         0.0, 1.0,
     ).astype(np.float32)
 
-    # Bilateral post-filter: σ_color ≈ 25 (uint8), σ_space = 10 px.
+    # Bilateral post-filter on float32 (CV_32F) — avoids the 8-bit
+    # precision loss of the uint8 round-trip.  sigmaColor ≈ 0.10 is
+    # equivalent to 25/255 in the [0, 1] float domain.
     try:
         import cv2
-        u8 = (result * 255.0 + 0.5).astype(np.uint8)
-        filtered = cv2.bilateralFilter(u8, d=9, sigmaColor=25, sigmaSpace=10)
-        result = filtered.astype(np.float32) / 255.0
+        result = cv2.bilateralFilter(result, d=9, sigmaColor=0.10, sigmaSpace=10)
     except ImportError:
         pass
 

@@ -23,6 +23,10 @@ export class TargetService {
   readonly active = signal<string | null>(null);
   readonly activeShape = signal<string | null>(null);
 
+  /** Physical dimensions of the engraving area in mm. Set by preset or manual input. */
+  readonly printWidthMm = signal<number>(0);
+  readonly printHeightMm = signal<number>(0);
+
   readonly activePreset = computed(() => {
     const name = this.active();
     return name ? (this.presets().find(p => p.name === name) ?? null) : null;
@@ -53,36 +57,60 @@ export class TargetService {
         preset.print_width_mm / preset.print_height_mm,
       );
     }
+
+    // Metal blanks (coin, signet ring, plaque) almost always have specular
+    // highlights that Sculptok misreads as raised depth — enable removal
+    // proactively so the default path produces a clean heightmap.
+    const metalTargets = new Set(['coin', 'signet_ring', 'plaque']);
+    if (metalTargets.has(preset.name)) {
+      this.renderService.patchSettings('input_remove_specular', true);
+    }
+
     this.active.set(name);
     this.activeShape.set(preset.default_shape ?? 'rectangle');
+    this.printWidthMm.set(preset.print_width_mm);
+    this.printHeightMm.set(preset.print_height_mm);
+    this.syncZoneGeometry();
     this.sessionTree.pushHistory(`target:apply:${name}`);
+
+    const metalNote = metalTargets.has(preset.name)
+      ? ' · Specular removal enabled (metal surface detected)'
+      : '';
     this.sessionTree.addToast({
       id: crypto.randomUUID(),
       severity: 'info',
       summary: 'Target preset applied',
-      detail: `${preset.display_name} — ${preset.print_width_mm}×${preset.print_height_mm} mm${preset.polarity_invert ? ', polarity inverted' : ''}`,
+      detail: `${preset.display_name} — ${preset.print_width_mm}×${preset.print_height_mm} mm${preset.polarity_invert ? ', polarity inverted' : ''}${metalNote}`,
     });
   }
 
   setShape(shape: string): void {
     this.activeShape.set(shape);
+    this.syncZoneGeometry();
   }
 
-  /** Helper used by the UI to read a single field from the active preset. */
-  activeWidthMm(): number | null {
-    const name = this.active();
-    if (!name) return null;
-    const preset = this.presets().find((p) => p.name === name);
-    return preset?.print_width_mm ?? null;
+  setDimensions(widthMm: number, heightMm: number): void {
+    this.printWidthMm.set(widthMm);
+    this.printHeightMm.set(heightMm);
+    this.syncZoneGeometry();
   }
 
-  activeHeightMm(): number | null {
-    const name = this.active();
-    if (!name) return null;
-    const preset = this.presets().find((p) => p.name === name);
-    return preset?.print_height_mm ?? null;
+  /**
+   * Mirror the blank's physical geometry into HeightmapSettings so zone
+   * overlays (field / rim / border) know where to draw. Without this the
+   * user would have to enter the blank size twice and the overlays would
+   * silently no-op at zone_width_mm = 0.
+   */
+  private syncZoneGeometry(): void {
+    const w = this.printWidthMm();
+    const h = this.printHeightMm();
+    if (w > 0 && h > 0) {
+      this.renderService.patchSettings('zone_width_mm', w);
+      this.renderService.patchSettings('zone_height_mm', h);
+    }
+    const shape = this.activeShape();
+    if (shape) {
+      this.renderService.patchSettings('zone_shape', shape as HeightmapSettings['zone_shape']);
+    }
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private _unused(_settings: HeightmapSettings): void {}
 }

@@ -61,6 +61,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # CLI overrides this from the target preset's print dimensions.
     "input_auto_crop_aspect": 0.0,
     "input_auto_crop_prefer_face": True,
+    "input_auto_crop_cx": 0.5,   # fractional centre written by wizard canvas
+    "input_auto_crop_cy": 0.5,
 
     # External heightmap source — required. The CLI/API arranges the
     # sculptok download and sets this path before calling render().
@@ -68,9 +70,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "external_heightmap_polarity": "bright_raised",  # | dark_raised | auto
 
     # Post-processing enhancement applied to the loaded heightmap.
-    # 'off' = passthrough (default); 'portrait' | 'standard' | 'coin' for
-    # increasing levels of contrast, gamma, and edge sharpening.
-    "heightmap_enhance_mode": "off",
+    # 'standard' = good baseline for most subjects (default).
+    "heightmap_enhance_mode": "standard",
 
     # Polarity invert at write time — flips the saved heightmap so the
     # subject engraves deep instead of the background. Used for signet
@@ -133,6 +134,31 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "signature_height_fraction": 0.04,
     "signature_margin_fraction": 0.03,
     "signature_depth_fraction": 0.6,
+
+    # Zone overlay geometry. Zero disables all zone overlays.
+    "zone_width_mm": 0.0,
+    "zone_height_mm": 0.0,
+    "zone_shape": "circle",
+    "zone_border_width_mm": 1.5,
+    "zone_rim_width_mm": 0.5,
+
+    # Field overlay — post-sculptok pattern composited into zone:field.
+    "field_pattern": "none",
+    "field_pattern_scale": 1.0,
+    "field_pattern_angle": 0.0,
+    "field_pattern_depth": 0.70,
+
+    # Rim overlay — beaded ring inside the outer edge.
+    "rim_pattern": "none",
+    "rim_bead_count": 72,
+    "rim_pattern_depth": 1.0,
+
+    # Border overlay — ornamental annulus between rim and field.
+    "border_pattern": "none",
+    "border_pattern_depth": 0.85,
+    "border_strand_count": 2,
+    "border_twist_periods": 40,
+    "border_leaf_count": 12,
 }
 
 _HEIGHTMAP_KEYS = set(DEFAULT_SETTINGS.keys())
@@ -148,6 +174,7 @@ class PreviewResult:
     image_hash: str
     subject_alpha: np.ndarray | None = None  # (H, W) float32 in [0,1] when computed
     conditioned: Image.Image | None = None   # photo after pre-sculptok prep + composite
+    warnings: list[str] = field(default_factory=list)  # user-facing skipped-feature notices
 
 
 @dataclass
@@ -232,6 +259,7 @@ class HeightmapService:
         self,
         image: Image.Image,
         settings: Mapping[str, Any],
+        subject_alpha_override: np.ndarray | None = None,
     ) -> Tuple[Image.Image, np.ndarray | None, str]:
         """Run pre-sculptok conditioning + (optional) bg-replace.
 
@@ -239,6 +267,10 @@ class HeightmapService:
         (uploads the prepped photo, not the raw upload, so the prep
         settings actually influence what sculptok sees). Returns
         ``(conditioned_photo, subject_alpha_or_None, image_hash)``.
+
+        ``subject_alpha_override`` supplies a precomputed subject mask
+        (e.g. the wizard's /mask result) so inference is not re-run; it is
+        resized to the conditioned photo's dimensions when they differ.
         """
         cond_payload = {
             k[len(_INPUT_PREFIX):]: v
@@ -258,10 +290,13 @@ class HeightmapService:
             aspect = float(settings.get("input_auto_crop_aspect", 0.0) or 0.0)
             if aspect > 0.0:
                 from .imgproc.auto_crop import auto_crop_to_aspect
+                cx_frac = float(settings.get("input_auto_crop_cx", 0.5) or 0.5)
+                cy_frac = float(settings.get("input_auto_crop_cy", 0.5) or 0.5)
                 conditioned, _strategy = auto_crop_to_aspect(
                     conditioned,
                     target_aspect=aspect,
                     prefer_face=bool(settings.get("input_auto_crop_prefer_face", True)),
+                    center_hint=(cx_frac, cy_frac),
                 )
 
         image_hash = _hash_pil(conditioned)
@@ -271,7 +306,16 @@ class HeightmapService:
         # by (image_hash, backend) so repeat calls within a render don't
         # re-run inference.
         subject_alpha: np.ndarray | None = None
-        if bool(settings.get("subject_mask_enabled", False)):
+        if subject_alpha_override is not None:
+            subject_alpha = np.clip(
+                subject_alpha_override.astype(np.float32, copy=False), 0.0, 1.0
+            )
+            if subject_alpha.shape != (conditioned.height, conditioned.width):
+                _alpha_pil = Image.fromarray(
+                    (subject_alpha * 255.0 + 0.5).astype(np.uint8), mode="L"
+                ).resize((conditioned.width, conditioned.height), Image.LANCZOS)
+                subject_alpha = np.asarray(_alpha_pil, dtype=np.float32) / 255.0
+        elif bool(settings.get("subject_mask_enabled", False)):
             subject_alpha = self._compute_subject_mask(conditioned, image_hash, settings)
 
         # Background composite — pattern OR solid colour fills the non-
@@ -289,6 +333,7 @@ class HeightmapService:
         self,
         image: Image.Image,
         settings: Mapping[str, Any],
+        subject_alpha_override: np.ndarray | None = None,
     ) -> PreviewResult:
         start = time.perf_counter()
 
@@ -297,7 +342,48 @@ class HeightmapService:
         # background composite. Same code path /sculptok/generate uses
         # before uploading, so the post-render preview matches what
         # sculptok actually saw.
-        conditioned, subject_alpha, image_hash = self.prepare_input(image, settings)
+        conditioned, subject_alpha, image_hash = self.prepare_input(
+            image, settings, subject_alpha_override=subject_alpha_override
+        )
+
+        # Silent no-op detection — features the user configured but that
+        # couldn't take effect. Surfaced in the API response so the UI can
+        # tell the user instead of quietly ignoring their settings.
+        warnings: list[str] = []
+        bg_name = str(settings.get("background_pattern", "none") or "none")
+        if bg_name != "none" and subject_alpha is None:
+            if bool(settings.get("subject_mask_enabled", False)):
+                warnings.append(
+                    "Background pattern was skipped: subject mask inference failed. "
+                    "Try a different cutout method in the Subject step."
+                )
+            else:
+                warnings.append(
+                    "Background pattern was skipped: subject cutout is disabled. "
+                    "Enable it so the pattern knows where the background is."
+                )
+        zone_w = float(settings.get("zone_width_mm", 0.0) or 0.0)
+        zone_h = float(settings.get("zone_height_mm", 0.0) or 0.0)
+        zone_patterns = [
+            name for key, name in (
+                ("field_pattern", "field"),
+                ("rim_pattern", "rim"),
+                ("border_pattern", "border"),
+            )
+            if str(settings.get(key, "none") or "none").lower() != "none"
+        ]
+        if zone_patterns and (zone_w <= 0.0 or zone_h <= 0.0):
+            warnings.append(
+                f"Zone overlays ({', '.join(zone_patterns)}) were skipped: "
+                "blank size is not set. Enter the blank width and height in mm."
+            )
+        field_active = str(settings.get("field_pattern", "none") or "none").lower() != "none"
+        if field_active and zone_w > 0.0 and zone_h > 0.0 and subject_alpha is None:
+            warnings.append(
+                "Field pattern will engrave over the subject relief: no subject "
+                "cutout is available to protect it. Enable the subject mask so "
+                "the pattern fills only the background."
+            )
 
         # Heightmap source — must be supplied. Sculptok auto-pull writes
         # a temp file and sets this path; users with their own heightmap
@@ -328,6 +414,11 @@ class HeightmapService:
                 subject_alpha=subject_alpha,
             )
 
+        # Zone overlays — field / rim / border patterns composited into
+        # the heightmap post-enhancement. No-op when zone_width_mm == 0.
+        from .zone_overlays import apply_zone_overlays
+        heightmap = apply_zone_overlays(heightmap, dict(settings), subject_alpha=subject_alpha)
+
         # Polarity invert (signet-ring mode). Flip the whole heightmap
         # so the subject engraves deep and the background stays surface.
         if bool(settings.get("polarity_invert", False)):
@@ -343,6 +434,7 @@ class HeightmapService:
             image_hash=image_hash,
             subject_alpha=subject_alpha,
             conditioned=conditioned,
+            warnings=warnings,
         )
 
     # ------------------------------------------------------- background fill

@@ -17,7 +17,7 @@ The caller is responsible for any subsequent resize.
 from __future__ import annotations
 
 import os
-from typing import Optional, Tuple
+from typing import Optional, Tuple  # noqa: UP035 (py3.8 compat)
 
 import numpy as np
 from PIL import Image
@@ -86,11 +86,21 @@ def auto_crop_to_aspect(
     *,
     target_aspect: float,
     prefer_face: bool = True,
+    center_hint: Optional[Tuple[float, float]] = None,
 ) -> Tuple[Image.Image, str]:
     """Crop ``image`` to ``target_aspect`` (width / height).
 
+    Parameters
+    ----------
+    center_hint
+        ``(cx_frac, cy_frac)`` in [0, 1] image fractions.  When provided
+        (and both values differ from the default 0.5/0.5 centre), the hint
+        overrides face/saliency detection so the user's canvas overlay
+        position is respected.  At exactly 0.5/0.5 the hint is ignored and
+        the normal face → saliency → centre fallback chain runs.
+
     Returns ``(cropped, strategy)`` where ``strategy`` is one of
-    ``"face"``, ``"saliency"``, ``"center"``.
+    ``"hint"``, ``"face"``, ``"saliency"``, ``"center"``.
     """
     arr = np.asarray(image.convert("RGB"))
     h, w = arr.shape[:2]
@@ -101,19 +111,30 @@ def auto_crop_to_aspect(
     cy: int
     strategy: str
 
-    if prefer_face:
-        bbox = find_face_bbox(image)
-        if bbox is not None:
-            x0, y0, x1, y1 = bbox
-            cx = (x0 + x1) // 2
-            cy = (y0 + y1) // 2
-            strategy = "face"
+    # User-specified crop centre takes priority over face/saliency detection.
+    if center_hint is not None:
+        hx, hy = center_hint
+        if abs(hx - 0.5) > 1e-4 or abs(hy - 0.5) > 1e-4:
+            cx = int(round(hx * w))
+            cy = int(round(hy * h))
+            strategy = "hint"
+        else:
+            center_hint = None  # treat as unset; fall through below
+
+    if center_hint is None:
+        if prefer_face:
+            bbox = find_face_bbox(image)
+            if bbox is not None:
+                x0, y0, x1, y1 = bbox
+                cx = (x0 + x1) // 2
+                cy = (y0 + y1) // 2
+                strategy = "face"
+            else:
+                cx, cy = find_saliency_centre(image)
+                strategy = "saliency" if (cx, cy) != (w // 2, h // 2) else "center"
         else:
             cx, cy = find_saliency_centre(image)
             strategy = "saliency" if (cx, cy) != (w // 2, h // 2) else "center"
-    else:
-        cx, cy = find_saliency_centre(image)
-        strategy = "saliency" if (cx, cy) != (w // 2, h // 2) else "center"
 
     if target_aspect >= w / h:
         crop_w = w

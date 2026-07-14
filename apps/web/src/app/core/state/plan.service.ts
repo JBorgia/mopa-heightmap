@@ -23,12 +23,19 @@ export class PlanService {
     }
 
     this.inFlight.set(true);
+    // When the blank geometry is configured, forward its shape so zone
+    // masks are cut for the actual blank instead of the profile default.
+    const shapeOverride =
+      (pipeline.settings.zone_width_mm ?? 0) > 0 && (pipeline.settings.zone_height_mm ?? 0) > 0
+        ? pipeline.settings.zone_shape
+        : undefined;
     this.apiClient
       .plan({
         image_id: session.imageId,
         heightmap_id: output.heightmapId,
         profile_name: pipeline.render.profileName ?? undefined,
         settings: pipeline.settings,
+        shape_override: shapeOverride,
       })
       .subscribe({
         next: (response) => {
@@ -44,6 +51,7 @@ export class PlanService {
                   depthUm: p.depth_um,
                   colorHex: p.color_hex,
                 })),
+                estimatedRuntimeS: response.estimated_runtime_s ?? 0,
               },
             },
           }));

@@ -47,12 +47,17 @@ def _gamma(arr: np.ndarray, gamma: float) -> np.ndarray:
 
 
 def _clahe(arr: np.ndarray, clip_limit: float = 2.0, tile: int = 8) -> np.ndarray:
-    """Contrast-Limited Adaptive Histogram Equalisation applied to depth values."""
+    """Contrast-Limited Adaptive Histogram Equalisation applied to depth values.
+
+    Uses uint16 input (CV_16U) to preserve full depth precision.  The uint8
+    path loses 8 bits of dynamic range which is visible as banding artefacts
+    in the coin enhance mode.
+    """
     try:
         import cv2  # type: ignore[import-untyped]
-        u8 = (arr * 255.0).clip(0, 255).astype(np.uint8)
+        u16 = (arr * 65535.0).clip(0, 65535).astype(np.uint16)
         clahe_op = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile, tile))
-        return clahe_op.apply(u8).astype(np.float32) / 255.0
+        return clahe_op.apply(u16).astype(np.float32) / 65535.0
     except ImportError:
         return arr
 
@@ -96,10 +101,22 @@ def enhance_for_engraving(
         return heightmap.astype(np.float32, copy=False)
 
     arr = heightmap.astype(np.float32, copy=True)
-    mask = (subject_alpha >= 0.5) if subject_alpha is not None else None
+    mask = None
+    if subject_alpha is not None:
+        alpha = np.clip(subject_alpha.astype(np.float32, copy=False), 0.0, 1.0)
+        if alpha.shape != arr.shape:
+            # Subject alpha comes from the source photo; the heightmap is
+            # sculptok-resolution. Resize so boolean indexing lines up.
+            from PIL import Image
+            alpha = np.asarray(
+                Image.fromarray((alpha * 255.0 + 0.5).astype(np.uint8), mode="L")
+                .resize((arr.shape[1], arr.shape[0]), Image.LANCZOS),
+                dtype=np.float32,
+            ) / 255.0
+        mask = alpha >= 0.5
 
     if mode == "portrait":
-        arr = _percentile_stretch(arr, mask, lo_pct=5.0, hi_pct=95.0)
+        arr = _percentile_stretch(arr, mask, lo_pct=2.0, hi_pct=98.0)
         arr = _gamma(arr, 1.2)
 
     elif mode == "standard":
@@ -108,9 +125,9 @@ def enhance_for_engraving(
         arr = _unsharp_mask(arr, sigma=1.5, strength=0.2)
 
     elif mode == "coin":
-        arr = _percentile_stretch(arr, mask, lo_pct=2.0, hi_pct=98.0)
-        arr = _gamma(arr, 1.5)
+        arr = _percentile_stretch(arr, mask, lo_pct=5.0, hi_pct=95.0)
         arr = _clahe(arr, clip_limit=2.5, tile=8)
-        arr = _unsharp_mask(arr, sigma=1.5, strength=0.3)
+        arr = _gamma(arr, 1.5)
+        arr = _unsharp_mask(arr, sigma=1.0, strength=0.3)
 
     return np.clip(arr, 0.0, 1.0).astype(np.float32)

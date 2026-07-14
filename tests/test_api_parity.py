@@ -97,7 +97,7 @@ def uploaded_image_id(client, gradient_png_bytes) -> str:
 class _StubService:
     """Replaces HeightmapService.render() with a deterministic output."""
 
-    def render(self, image: Image.Image, settings: dict):
+    def render(self, image: Image.Image, settings: dict, subject_alpha_override=None):
         from mopa.service import PreviewResult
         arr = np.zeros((image.height, image.width), dtype=np.float32)
         # Simple fill: mean of red channel / 255
@@ -431,7 +431,7 @@ def test_plan_and_lbrn2_export_use_profile_lightburn_card_override(
     assert plan_resp.status_code == 200, plan_resp.text
     plan_body = plan_resp.json()
     assert plan_body["passes"], plan_body
-    assert plan_body["passes"][0]["label"] == "form: C01"
+    assert plan_body["passes"][0]["label"] == "Form — 3D depth carve"
     assert plan_body["passes"][0]["pass_number"] == 17
 
     export_resp = client.post(
@@ -534,7 +534,7 @@ def test_plan_and_lbrn2_export_honor_profile_kind_color_overrides(
     assert plan_resp.status_code == 200, plan_resp.text
     plan_body = plan_resp.json()
     assert plan_body["passes"], plan_body
-    assert plan_body["passes"][0]["label"] == "form: CustomDepth"
+    assert plan_body["passes"][0]["label"] == "Form — 3D depth carve"
     assert plan_body["passes"][0]["pass_number"] == 23
 
     export_resp = client.post(

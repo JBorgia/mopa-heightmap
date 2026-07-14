@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 
 import { ApiClientService } from '../api/api-client.service';
 import { SessionTreeService } from './session-tree.service';
+import { StudioState } from './studio-state';
 
 export const EXPORT_PNG_FILENAME = 'heightmap.png';
 // Server emits a zip bundle (`.lbrn2 project + per-pass PNGs`). User must
@@ -51,6 +52,13 @@ export class ExportService {
         plan_id: state.output.plan.planId,
         heightmap_id: state.output.heightmapId,
         profile_name: state.pipeline.render.profileName ?? undefined,
+        // Subject mask drives the zone:device layer (and its exclusion from
+        // zone:field) — without it the device pass ships an all-ones
+        // placeholder. Prefer the user-driven page-1 mask, fall back to the
+        // render-time one.
+        subject_mask_id:
+          state.pipeline.mask.maskId ?? state.output.renderMaskId ?? undefined,
+        shape_override: this._shapeOverride(state),
       })
       .subscribe({
         next: (blob) => {
@@ -126,6 +134,7 @@ export class ExportService {
         // they both cover the same shape but the page-1 mask is what the
         // user explicitly intended to ship as the deliverable.
         subject_mask_id: userMaskId ?? renderMaskId,
+        shape_override: this._shapeOverride(state),
       })
       .subscribe({
         next: (blob) => {
@@ -146,6 +155,15 @@ export class ExportService {
           this.bundleInFlight.set(false);
         },
       });
+  }
+
+  /** Blank shape for zone-mask cutting — only meaningful once the blank
+   * geometry is configured; otherwise the profile's own shape applies. */
+  private _shapeOverride(state: StudioState): string | undefined {
+    const s = state.pipeline.settings;
+    return (s.zone_width_mm ?? 0) > 0 && (s.zone_height_mm ?? 0) > 0
+      ? s.zone_shape
+      : undefined;
   }
 
   private _triggerDownload(blob: Blob, filename: string): void {
