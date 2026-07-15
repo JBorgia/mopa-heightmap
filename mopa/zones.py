@@ -316,6 +316,32 @@ def zone_hm_for_pass(
     return result
 
 
+def pad_to_square(
+    arr: np.ndarray,
+    fill: Optional[float] = None,
+) -> np.ndarray:
+    """Pad a (H, W) array to a centred square of side ``max(H, W)``.
+
+    ``fill=None`` uses the array's border-median value — the right choice
+    for heightmaps, where the padding must read as more background (a
+    white or zero fill would corrupt background-flatness detection and
+    LightBurn depth). Masks should pass ``fill=0.0`` (padding is outside
+    every zone). No-op for square inputs.
+    """
+    h, w = arr.shape[:2]
+    if h == w:
+        return arr
+    if fill is None:
+        border = np.concatenate([arr[0, :], arr[-1, :], arr[:, 0], arr[:, -1]])
+        fill = float(np.median(border))
+    s = max(h, w)
+    out = np.full((s, s), fill, dtype=arr.dtype)
+    y0 = (s - h) // 2
+    x0 = (s - w) // 2
+    out[y0:y0 + h, x0:x0 + w] = arr
+    return out
+
+
 def mask_from_heightmap(
     heightmap: np.ndarray,
     *,

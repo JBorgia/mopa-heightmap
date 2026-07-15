@@ -771,6 +771,11 @@ export interface components {
              */
             exergue_enabled: boolean;
             /**
+             * Exergue Text
+             * @default
+             */
+            exergue_text: string;
+            /**
              * Field Pattern
              * @default none
              * @enum {string}

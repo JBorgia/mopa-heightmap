@@ -293,6 +293,50 @@ def test_zone_precedence_and_exergue_gating():
     assert (dev[above] < 250).mean() > 0.9, "device lost the subject above the strip"
 
 
+def test_exergue_text_renders_raised_on_recessed_panel():
+    """exergue_text renders as raised (white) glyphs on the recessed
+    (black) exergue panel — classic coin date/motto treatment."""
+    import io as _io
+    import zipfile as _zipfile
+    from fastapi.testclient import TestClient
+    from apps.api.main import app
+
+    client = TestClient(app)
+    rng = np.random.default_rng(11)
+    photo = rng.uniform(60, 200, (240, 240, 3)).astype(np.uint8)
+    buf = io.BytesIO(); Image.fromarray(photo).save(buf, format="PNG")
+    image_id = client.post("/upload", files={"file": ("p.png", buf.getvalue(), "image/png")}).json()["image_id"]
+
+    hm = np.zeros((240, 240), dtype=np.float32)
+    hm[80:160, 80:160] = 0.8
+    buf = io.BytesIO(); Image.fromarray((hm * 65535).astype(np.uint16)).save(buf, format="PNG")
+    hm_path = client.post("/upload/heightmap", files={"file": ("h.png", buf.getvalue(), "image/png")}).json()["heightmap_path"]
+
+    settings = {"external_heightmap_path": hm_path, "heightmap_enhance_mode": "off",
+                "zone_width_mm": 60.0, "zone_height_mm": 60.0, "zone_shape": "circle",
+                "exergue_enabled": True, "exergue_text": "MMXXVI"}
+    r = client.post("/render", json={"image_id": image_id, "settings": settings,
+                                     "profile_name": "mopa_60w_brass"})
+    assert r.status_code == 200, r.text
+    plan = client.post("/plan", json={"image_id": image_id, "heightmap_id": r.json()["heightmap_id"],
+                                      "profile_name": "mopa_60w_brass", "settings": settings,
+                                      "shape_override": "circle"}).json()
+    exp = client.post("/export/lbrn2", json={"plan_id": plan["plan_id"],
+                                             "heightmap_id": r.json()["heightmap_id"],
+                                             "profile_name": "mopa_60w_brass",
+                                             "shape_override": "circle"})
+    assert exp.status_code == 200, exp.text
+    zf = _zipfile.ZipFile(_io.BytesIO(exp.content))
+    ex_name = next(n for n in zf.namelist() if "exergue" in n)
+    ex = np.asarray(Image.open(io.BytesIO(zf.read(ex_name))).convert("L"), dtype=np.int32)
+    ex = np.flipud(ex)
+    strip = ex[200:236, 60:180]  # inside the panel band
+    # Panel floor engraves (dark) AND raised glyphs survive (bright) —
+    # i.e. the strip is not a uniform recess.
+    assert (strip < 128).mean() > 0.3, "panel floor missing"
+    assert (strip > 250).sum() > 100, "raised text glyphs missing"
+
+
 # ----------------------------------------------------------- /render mask_id
 
 def test_render_reuses_wizard_mask_id():

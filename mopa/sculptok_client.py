@@ -102,10 +102,12 @@ def flatten_cutout(
 ):
     """Load a Sculptok cutout PNG → (flattened RGB image, alpha or None).
 
-    The bg-removal endpoint returns an RGBA PNG whose alpha channel is the
-    subject cutout. Flattening onto black matches the solid_black
-    background-replace convention (the depth model reads the flat area as
-    zero relief); the alpha doubles as a pixel-perfect subject mask.
+    Observed July 2026: the bg-removal endpoint returns an RGB PNG with the
+    background already flattened to white — no alpha channel. That's fine:
+    the flat background is exactly what the depth model (and our
+    heightmap-derived masking) needs, so the image passes through as-is
+    and alpha is None. The RGBA branch stays in case the API ever returns
+    a true cutout; then the alpha doubles as a subject mask.
     Returns ``(PIL.Image RGB, np.float32 (H, W) alpha | None)``.
     """
     import numpy as _np
@@ -534,9 +536,11 @@ class SculptokClient:
         out_path = Path(out_path)
 
         image_url = self.upload_image(photo_path)
+        # hd_fix must stay ON: the endpoint rejects removeBack-only jobs
+        # (observed status=9 failures with hdFix=false, July 2026).
         prompt_id = self.submit_hd_fix(
             image_url,
-            params=SculptokHDFixParams(hd_fix=False, remove_back=mode),
+            params=SculptokHDFixParams(hd_fix=True, remove_back=mode),
         )
         status = self.wait_for_completion(
             prompt_id, interval_s=poll_interval_s, timeout_s=poll_timeout_s,

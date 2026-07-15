@@ -420,9 +420,18 @@ export const WIZARD_MASK_BACKENDS: { label: string; value: MaskBackend }[] = [
                               (change)="renderService.patchSettings('exergue_enabled', $any($event.target).checked)" />
                             Exergue strip (bottom text area)
                             <app-info-tip label="Exergue strip"
-                              text="Adds a separate deep-engrave layer for the classic bottom text strip of a coin. Leave off unless you plan to place text there — with no content it only engraves whatever background falls inside the strip."></app-info-tip>
+                              text="Engraves the classic bottom strip of a coin as a recessed panel, with your text left raised on it (like a date or motto). The main design is clipped at the exergue line."></app-info-tip>
                           </label>
                         </div>
+                        @if (pipeline().settings.exergue_enabled) {
+                          <div class="control-group indent">
+                            <label>Exergue text
+                              <input type="text" maxlength="40" placeholder="e.g. MMXXVI"
+                                [value]="pipeline().settings.exergue_text ?? ''"
+                                (input)="renderService.patchSettings('exergue_text', $any($event.target).value)" />
+                            </label>
+                          </div>
+                        }
 
                       } @else {
                         <p class="muted small">Enter the blank size above (step 2) to enable overlay controls.</p>

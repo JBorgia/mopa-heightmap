@@ -67,6 +67,7 @@ from mopa.zones import (
     zone_hm_for_pass,
     entries_from_zone_params,
     mask_from_heightmap,
+    pad_to_square,
     VALID_SHAPES,
 )
 from mopa.zone_overlays import zone_pattern_layer
@@ -550,6 +551,18 @@ def do_export_lbrn2(
     _ZONE_KINDS = frozenset({PASS_KIND_FIELD, PASS_KIND_BORDER, PASS_KIND_RIM, PASS_KIND_DEVICE, PASS_KIND_EXERGUE})
     is_zone_plan = any(ep.kind in _ZONE_KINDS for ep in plan.passes)
 
+    # Zone geometry lives on the physical blank (a square canvas of side
+    # sq_mm); pad non-square heightmaps up front — each padded with its own
+    # background level so mask derivation and depth stay honest — and run
+    # the whole zone path at (sq_px, sq_px). Without this the coin rings
+    # get clipped to arcs on the short axis.
+    if is_zone_plan and px_h != px_w:
+        hm = pad_to_square(hm)
+        if hm_clean is not None:
+            hm_clean = pad_to_square(hm_clean)
+        hm_device = hm_clean if hm_clean is not None else hm
+        px_h = px_w = sq_px
+
     # Bake subject mask into the heightmap array before any per-pass PNG is
     # computed. This is the only guarantee that background pixels don't fire
     # on the laser — a non-engraving .lbrn2 layer (the old M-layer) provided
@@ -673,15 +686,33 @@ def do_export_lbrn2(
                 # pattern is configured for the zone.
                 pattern = None
                 if ep.kind in _ZONE_SHORT and plan_settings:
+                    # Patterns are generated on the padded square canvas —
+                    # its physical size is sq_mm × sq_mm, not the image's
+                    # contain-fit rectangle.
                     pattern = zone_pattern_layer(
                         _ZONE_SHORT[ep.kind], plan_settings, px_h, px_w,
-                        print_w_mm=print_w_mm, print_h_mm=print_h_mm,
+                        print_w_mm=sq_mm, print_h_mm=sq_mm,
                     )
                 if ep.kind == PASS_KIND_EXERGUE:
-                    # Reserved text panel: a flat recess at exergue params —
-                    # never leftover sculpt content. Text relief lands here
-                    # once exergue text is supported.
-                    layer = np.clip(1.0 - eff_mask, 0.0, 1.0).astype(np.float32)
+                    # Text panel: the strip engraves as a flat recess, with
+                    # exergue_text left at surface height — raised text on a
+                    # recessed floor, the classic coin date/motto treatment.
+                    text = str(plan_settings.get("exergue_text", "") or "").strip()
+                    if text:
+                        from mopa.signature import render_exergue_text_mask
+                        _ex_frac = float(
+                            (profile_payload.get("zone_geometry") or {}).get(
+                                "exergue_height_fraction", 0.18
+                            )
+                        )
+                        text_mask = render_exergue_text_mask(
+                            (px_h, px_w), text, strip_top_frac=1.0 - _ex_frac,
+                        )
+                        layer = np.clip(
+                            1.0 - eff_mask * (1.0 - text_mask), 0.0, 1.0
+                        ).astype(np.float32)
+                    else:
+                        layer = np.clip(1.0 - eff_mask, 0.0, 1.0).astype(np.float32)
                 elif pattern is not None:
                     # Composite the pattern relief against white through the
                     # zone mask: outside the zone nothing engraves.
@@ -1023,6 +1054,12 @@ def _build_zone_passes(
     scale = min(box_w / px_w, box_h / px_h)
     px_per_mm = 1.0 / scale
 
+    # Zone geometry lives on the PHYSICAL BLANK, which is square-ish even
+    # when the sculpt image isn't. Masks are computed on the padded square
+    # canvas (side = max dim) — on a non-square heightmap the coin circle
+    # extends past the short edge and the rings would be clipped to arcs.
+    sq = max(px_h, px_w)
+
     shape = shape_override or str(profile_payload.get("shape", "rectangle"))
     if shape not in VALID_SHAPES:
         shape = "rectangle"
@@ -1034,7 +1071,7 @@ def _build_zone_passes(
     # otherwise the bottom strip would be a dead zone no pass engraves.
     exergue_on = settings is None or bool(settings.get("exergue_enabled", False))
     geo = zone_masks_from_geometry(
-        px_h, px_w,
+        sq, sq,
         shape=shape,
         print_w_mm=box_w,
         print_h_mm=box_h,
@@ -1131,7 +1168,7 @@ def _build_zone_passes(
         if geo_key is not None:
             mask = geo[geo_key]
         else:
-            mask = np.ones((px_h, px_w), dtype=np.float32)
+            mask = np.ones((sq, sq), dtype=np.float32)
         passes.append(EngravingPass(
             id=kind,
             kind=kind,

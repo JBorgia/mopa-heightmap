@@ -139,3 +139,45 @@ def render_text_signature_mask(
     draw.text((x - bbox[0], y - bbox[1]), text, fill=255, font=font)
     out = np.asarray(canvas, dtype=np.float32) / 255.0
     return np.clip(out, 0.0, 1.0)
+
+
+def render_exergue_text_mask(
+    shape: Tuple[int, int],
+    text: str,
+    *,
+    strip_top_frac: float,
+    height_fraction: float = 0.5,
+) -> np.ndarray:
+    """Render ``text`` centred in the bottom exergue strip.
+
+    The strip spans rows ``strip_top_frac * H .. H`` (the classic coin
+    text band). Text is horizontally centred and vertically centred
+    within the strip, sized to ``height_fraction`` of the strip height.
+    Returns a float32 (H, W) mask — 1 on text, 0 elsewhere. Empty text
+    returns all-zeros.
+    """
+    H, W = int(shape[0]), int(shape[1])
+    out = np.zeros((H, W), dtype=np.float32)
+    if not text or H <= 0 or W <= 0:
+        return out
+
+    y0 = int(np.clip(strip_top_frac, 0.0, 1.0) * H)
+    strip_h = max(1, H - y0)
+    font_px = max(8, int(strip_h * float(np.clip(height_fraction, 0.05, 1.0))))
+    font = _load_font(font_px)
+
+    canvas = Image.new("L", (W, H), 0)
+    draw = ImageDraw.Draw(canvas)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = max(1, bbox[2] - bbox[0])
+    text_h = max(1, bbox[3] - bbox[1])
+    # Shrink to fit if the label is wider than ~80 % of the canvas.
+    if text_w > W * 0.8:
+        font = _load_font(max(8, int(font_px * (W * 0.8) / text_w)))
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = max(1, bbox[2] - bbox[0])
+        text_h = max(1, bbox[3] - bbox[1])
+    x = (W - text_w) // 2
+    y = y0 + (strip_h - text_h) // 2
+    draw.text((x - bbox[0], y - bbox[1]), text, fill=255, font=font)
+    return np.clip(np.asarray(canvas, dtype=np.float32) / 255.0, 0.0, 1.0)

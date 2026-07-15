@@ -114,10 +114,11 @@ class HeightmapSettings(BaseModel):
     ] = "circle"
     zone_border_width_mm: float = Field(1.5, ge=0.0, le=20.0)
     zone_rim_width_mm: float = Field(0.5, ge=0.0, le=10.0)
-    # Exergue (bottom text strip) pass — off by default: until it carries
-    # actual text content it would only engrave whatever background falls
-    # inside the strip at deep text parameters.
+    # Exergue (bottom text strip) pass — off by default. When enabled the
+    # strip engraves as a recessed panel; exergue_text renders as RAISED
+    # text on that panel (classic coin date/motto placement).
     exergue_enabled: bool = False
+    exergue_text: str = ""
 
     # Field overlay — post-sculptok pattern composited into zone:field.
     field_pattern: Literal[
